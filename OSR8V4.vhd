@@ -83,7 +83,7 @@ entity OSR8_CPU is
 		interrupt_pc : integer := 3	);
 	port (
 		prog_data : in std_logic_vector(7 downto 0); -- Program Data
-		prog_cntr : out std_logic_vector(prog_cntr_len-1 downto 0); -- Program Address
+		prog_cntr : inout std_logic_vector(prog_cntr_len-1 downto 0); -- Program Address
 		cpu_data_out : out std_logic_vector(7 downto 0); -- Outgoing CPU Data Bus
 		cpu_data_in : in std_logic_vector(7 downto 0); -- Incoming CPU Data Bus
 		cpu_addr : out std_logic_vector(cpu_addr_len-1 downto 0); -- Outgoing CPU Address Bus

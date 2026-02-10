@@ -3,6 +3,13 @@
 
 ; This code runs in an OSR8 microprocessor.
 
+
+;NOTE: reduced interrupt timer 1 and 2 from 16 to 8 bits.
+;NOTE: remove all the stimulus generating code.
+;NOTE: the self-calibration of the ring oscillator is by 
+;reading the value of RCK in the top bit of the status
+;register while in boost, not counting in firmare.
+
 ; Configuration Constants.
 const version         11 ; The firmwarwe version.
 const identifier_hi 0x90 ; 0-255, no restrictions

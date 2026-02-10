@@ -1,7 +1,8 @@
 -- <pre> Intraperitoneal Transmitter (IPT, A3054) Firmware, Toplevel Unit
 
 -- V1.1, 10-FEB-26: Based on P3041 V3.1. With Synplify set to area optimization
--- the code takes up 1267 LUTs in the QFN-32 LCMXO2-1200ZE.
+-- the code takes up 1267 LUTs in the QFN-32 LCMXO2-1200ZE. Reduce the two millisecond
+-- interrupt timers from 16 bits to 8 bits. Now 1195 LUTs.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -58,17 +59,15 @@ entity main is
 	constant mmu_xcr  : integer := 11; -- Transmit Control Register (Write)
 	constant mmu_rfc  : integer := 12; -- Radio Frequency Calibration (Write)	
 	constant mmu_etc  : integer := 13; -- Enable Transmit Clock (Write)
-	constant mmu_tcf  : integer := 14; -- Transmit Clock Frequency (Write)
+	constant mmu_tcf  : integer := 14; -- Reference Clock (Read)
 	constant mmu_tcd  : integer := 15; -- Transmit Clock Divider (Write)
 	constant mmu_bcc  : integer := 16; -- Boost CPU Clock (Write)
 	constant mmu_dfr  : integer := 17; -- Diagnostic Flag Register (Read/Write)
 	constant mmu_sr   : integer := 18; -- Status Register (Read)
 	constant mmu_cmp  : integer := 19; -- Command Memory Portal(Read)
 	constant mmu_cpr  : integer := 21; -- Command Processor Reset (Write)
-	constant mmu_i1ph : integer := 22; -- Interrupt Timer One Period MSB (Write)
-	constant mmu_i1pl : integer := 23; -- Interrupt Timer One Period LSB (Write)
-	constant mmu_i2ph : integer := 24; -- Interrupt Timer Two Period MSB (Write)
-	constant mmu_i2pl : integer := 25; -- Interrupt Timer Two Period LSB (Write)
+	constant mmu_i1p  : integer := 22; -- Interrupt Timer One Period MSB (Write)
+	constant mmu_i2p  : integer := 24; -- Interrupt Timer Two Period MSB (Write)
 	constant mmu_i3p  : integer := 26; -- Interrupt Timer Three Period MSB (Write)
 	constant mmu_i4p  : integer := 27; -- Interrupt Timer Four Period MSB (Write)
 end;
@@ -157,7 +156,7 @@ architecture behavior of main is
 
 -- Interrupt Handler signals.
 	signal int_mask, int_bits, int_rst, int_set : std_logic_vector(7 downto 0);
-	signal int_period_1, int_period_2 : std_logic_vector(15 downto 0);
+	signal int_period_1, int_period_2 : std_logic_vector(7 downto 0);
 	signal int_period_3, int_period_4 : std_logic_vector(7 downto 0);
 	signal INTZ1, INTZ2, INTZ3, INTZ4 : boolean; -- Interrupt Counter Zero Flag
 	
@@ -436,10 +435,8 @@ begin
 						when mmu_bcc  => BOOST <= (cpu_data_out(0) = '1');
 						when mmu_dfr  => df_reg <= cpu_data_out(3 downto 0);
 						when mmu_cpr => CPRST <= true;
-						when mmu_i1ph => int_period_1(15 downto 8) <= cpu_data_out;
-						when mmu_i1pl => int_period_1(7 downto 0) <= cpu_data_out;
-						when mmu_i2ph => int_period_2(15 downto 8) <= cpu_data_out;
-						when mmu_i2pl => int_period_2(7 downto 0) <= cpu_data_out;
+						when mmu_i1p => int_period_1(7 downto 0) <= cpu_data_out;
+						when mmu_i2p => int_period_2(7 downto 0) <= cpu_data_out;
 						when mmu_i3p  => int_period_3(7 downto 0) <= cpu_data_out;
 						when mmu_i4p  => int_period_4(7 downto 0) <= cpu_data_out;
 					end case;
@@ -527,7 +524,7 @@ begin
 	-- period of each timer by writing to locations in the CPU control space. If we want
 	-- the counter to have period N ticks, we write value N-1 to the period registers.
 	Interrupt_Controller : process (RCK,CK,RESET) is
-	variable counter_1, counter_2 : integer range 0 to 65535;
+	variable counter_1, counter_2 : integer range 0 to 255;
 	variable counter_3, counter_4 : integer range 0 to 255;
 	variable mcnt : integer range 0 to 31;
 	
@@ -877,51 +874,6 @@ begin
 		else
 			xdac <= std_logic_vector(to_unsigned(frequency_low,5));
 			FHI <= false;
-		end if;
-	end process;
-
--- The Stimulus Controller takes the stimulus current value and modulates
--- the On Lamp (ONL) output from 6% to 100% for values 0 to 15.
-	Stimulus_Controller: process (RCK) is 
-	variable c : integer range 0 to 15;
-	begin
-		if rising_edge(RCK) then
-			case stimulus_current is
-				when 0 => ONL <= to_std_logic((c=0));
-				when 1 => ONL <= to_std_logic((c=0) or (c=8));
-				when 2 => ONL <= to_std_logic((c=0) or (c=5) or (c=10));
-				when 3 => ONL <= to_std_logic((c=0) or (c=4) or (c=8) or (c=12));
-				when 4 => ONL <= to_std_logic((c=0) or (c=3) or (c=6) or (c=10) or (c=13));
-				when 5 => ONL <= to_std_logic(
-					(c=0) or (c=3) or (c=6) or (c=9) or (c=12) or (c=14));
-				when 6 => ONL <= to_std_logic(
-					(c=0) or (c=2) or (c=4) or (c=6) or (c=8) or (c=10) or (c=12));
-				when 7 => ONL <= to_std_logic(
-					(c=0) or (c=2) or (c=4) or (c=6) or (c=8) or (c=10) or (c=12) or (c=14));
-				when 8 => ONL <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=5) or (c=6) or (c=7) or (c=10) or (c=11)
-					or (c=12));
-				when 9 => ONL <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=5) or (c=6) or (c=7) or (c=10) or (c=11)
-					or (c=12) or (c=14));
-				when 10 => ONL <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
-					or (c=10) or (c=12) or (c=13));
-				when 11 => ONL <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
-					or (c=10) or (c=12) or (c=13) or (c=14));			
-				when 12 => ONL <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
-					or (c=10) or (c=12) or (c=13) or (c=14) or (c=15));	
-				when 13 => ONL <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=3) or (c=4) or (c=5) or (c=6) or (c=8)
-					or (c=9) or (c=10) or (c=11) or (c=12) or (c=13) or (c=14));	
-				when 14 => ONL <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=3) or (c=4) or (c=5) or (c=6) or (c=7)
-					or (c=8) or (c=9) or (c=10) or (c=11) or (c=12) or (c=13) or (c=14));	
-				when 15 => ONL <= '1';
-			end case;
-			c := c + 1;
 		end if;
 	end process;
 	
