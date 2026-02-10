@@ -1,0 +1,53 @@
+[Device]
+Family=machxo2
+PartType=LCMXO2-1200ZE
+PartName=LCMXO2-1200ZE-1UWG25ITR
+SpeedGrade=1
+Package=WLCSP25
+OperatingCondition=IND
+Status=S
+
+[IP]
+VendorName=Lattice Semiconductor Corporation
+CoreType=LPM
+CoreStatus=Demo
+CoreName=FIFO_DC
+CoreRevision=5.8
+ModuleName=CMD_FIFO
+SourceFormat=VHDL
+ParameterFileVersion=1.0
+Date=08/30/2023
+Time=13:22:09
+
+[Parameters]
+Verilog=0
+VHDL=1
+EDIF=1
+Destination=Synplicity
+Expression=BusA(0 to 7)
+Order=Big Endian [MSB:LSB]
+IO=0
+FIFOImp=EBR Only
+RDepth=2048
+RWidth=8
+WDepth=2048
+WWidth=8
+regout=0
+CtrlByRdEn=0
+ClockEn=0
+EmpFlg=1
+PeMode=Static - Single Threshold
+PeAssert=2
+PeDeassert=12
+FullFlg=1
+PfMode=Static - Single Threshold
+PfAssert=2046
+PfDeassert=506
+Reset=Async
+Reset1=Sync
+RDataCount=0
+WDataCount=0
+EnECC=0
+
+[Command]
+cmd_line= -w -n CMD_FIFO -lang vhdl -synth synplify -bus_exp 7 -bb -arch xo2c00 -type ebfifo -depth 2048 -width 8 -rwidth 8 -no_enable -pe 2 -pf 2046
