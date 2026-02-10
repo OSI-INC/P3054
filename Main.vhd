@@ -59,7 +59,7 @@ entity main is
 	constant mmu_xcr  : integer := 11; -- Transmit Control Register (Write)
 	constant mmu_rfc  : integer := 12; -- Radio Frequency Calibration (Write)	
 	constant mmu_etc  : integer := 13; -- Enable Transmit Clock (Write)
-	constant mmu_tcf  : integer := 14; -- Reference Clock (Read)
+	constant mmu_tcf  : integer := 14; -- Transmit Clock Frequency (Read)
 	constant mmu_tcd  : integer := 15; -- Transmit Clock Divider (Write)
 	constant mmu_bcc  : integer := 16; -- Boost CPU Clock (Write)
 	constant mmu_dfr  : integer := 17; -- Diagnostic Flag Register (Read/Write)
