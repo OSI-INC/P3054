@@ -2,7 +2,8 @@
 
 -- V1.1, 10-FEB-26: Based on P3041 V3.1. With Synplify set to area optimization
 -- the code takes up 1267 LUTs in the QFN-32 LCMXO2-1200ZE. Reduce the two millisecond
--- interrupt timers from 16 bits to 8 bits. Now 1195 LUTs.
+-- interrupt timers from 16 bits to 8 bits. Now 1195 LUTs. Eliminate clock calibrator
+-- and its counter. Still 1195 LUTs.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -59,7 +60,6 @@ entity main is
 	constant mmu_xcr  : integer := 11; -- Transmit Control Register (Write)
 	constant mmu_rfc  : integer := 12; -- Radio Frequency Calibration (Write)	
 	constant mmu_etc  : integer := 13; -- Enable Transmit Clock (Write)
-	constant mmu_tcf  : integer := 14; -- Transmit Clock Frequency (Read)
 	constant mmu_tcd  : integer := 15; -- Transmit Clock Divider (Write)
 	constant mmu_bcc  : integer := 16; -- Boost CPU Clock (Write)
 	constant mmu_dfr  : integer := 17; -- Diagnostic Flag Register (Read/Write)
@@ -119,7 +119,6 @@ architecture behavior of main is
 		
 -- Clock Calibrator
 	signal ENTCK : boolean; -- Enable the Transmit Clock
-	signal tck_frequency : integer range 0 to 255; -- Transmit Clock Counter
 	constant default_tck_divisor : integer := 11;
 	signal tck_divisor : integer range 0 to 15 := default_tck_divisor;
 	
@@ -361,7 +360,6 @@ begin
 						when mmu_irqb => cpu_data_in <= int_bits;
 						when mmu_imsk => cpu_data_in <= int_mask;
 						when mmu_dfr => cpu_data_in(3 downto 0) <= df_reg;
-						when mmu_tcf => cpu_data_in <= std_logic_vector(to_unsigned(tck_frequency,8));
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready Flag
 							cpu_data_in(1) <= to_std_logic(ENTCK);  -- Transmit Clock Enabled
@@ -370,6 +368,7 @@ begin
 							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active Flag
 							cpu_data_in(5) <= to_std_logic(BOOST);  -- Boost CPU Flag
 							cpu_data_in(6) <= CME;                  -- Command Memory Empty
+							cpu_data_in(7) <= RCK;                  -- Reference Clock
 						when mmu_cmp =>
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
@@ -442,42 +441,6 @@ begin
 					end case;
 				end if;
 			end if;
-		end if;
-	end process;
-	
-	-- The Clock Calibrator counts cycles of TCK for one half-period of RCK after the
-	-- assertion of Enable Transmit Clock (ENTCK) and makes them available to the CPU
-	-- in the tck_frequency register. If TCK is 5.00 MHz and RCK is 32.768 kHz, 
-	-- tck_frequency will be 76 when the counter stops. The counter will hold its 
-	-- value until ENTCK is unasserted.
-	Clock_Calibrator : process (TCK,ENTCK) is
-	variable state, next_state : integer range 0 to 3;
-	begin
-		if not ENTCK then
-			state := 0;
-			tck_frequency <= 0;
-		elsif rising_edge(TCK) then
-			next_state := state;
-			if (state = 0) then
-				if ENTCK then 
-					next_state := 1;
-				end if;
-				tck_frequency <= 0;
-			elsif (state = 1) then
-				if (RCK = '1') then 
-					next_state := 2;
-				end if;
-				tck_frequency <= tck_frequency + 1;
-			elsif (state = 2) then
-				if not ENTCK then 
-					next_state := 0;
-				end if;
-				tck_frequency <= tck_frequency;
-			else 
-				next_state := 0;
-				tck_frequency <= tck_frequency;
-			end if;
-			state := next_state;
 		end if;
 	end process;
 	
