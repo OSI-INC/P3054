@@ -925,8 +925,7 @@ begin
 -- With XEN we enable the VCO. We assert XEN while the Message Transmitter is active,
 -- provided that the Command Processor is not receiving a command. We also turn on
 -- the VCO when the CPU asserts Transmit Warmup (TXWP). 
---	XEN <= to_std_logic((TXA or TXWP) and (CMDRDY or (not CPA)));
-	XEN <= to_std_logic(TXA);
+	XEN <= to_std_logic((TXA or TXWP) and (CMDRDY or (not CPA)));
 			
 -- The Frequency Modulation process takes the transmit bit values provided by
 -- the Message Transmitter, turns them into a sequence of rising and falling
@@ -966,7 +965,55 @@ begin
 		end if;
 	end process;
 
--- The Receive Power signal must be synchronized with the RCK clock.
+-- The Stimulus Controller takes the stimulus current value and modulates
+-- the LED output from 0% to 100% for values 0 to 15.
+	Stimulus_Controller: process (RESET, RCK) is 
+	variable c : integer range 0 to 15;
+	begin
+		if RESET = '1' then
+			LED <= '0';
+		elsif rising_edge(RCK) then
+			case stimulus_current is
+				when 0 => LED <= '0';
+				when 1 => LED <= to_std_logic((c=0) or (c=8));
+				when 2 => LED <= to_std_logic((c=0) or (c=5) or (c=10));
+				when 3 => LED <= to_std_logic((c=0) or (c=4) or (c=8) or (c=12));
+				when 4 => LED <= to_std_logic((c=0) or (c=3) or (c=6) or (c=10) or (c=13));
+				when 5 => LED <= to_std_logic(
+					(c=0) or (c=3) or (c=6) or (c=9) or (c=12) or (c=14));
+				when 6 => LED <= to_std_logic(
+					(c=0) or (c=2) or (c=4) or (c=6) or (c=8) or (c=10) or (c=12));
+				when 7 => LED <= to_std_logic(
+					(c=0) or (c=2) or (c=4) or (c=6) or (c=8) or (c=10) or (c=12) or (c=14));
+				when 8 => LED <= to_std_logic(
+					(c=0) or (c=1) or (c=2) or (c=5) or (c=6) or (c=7) or (c=10) or (c=11)
+					or (c=12));
+				when 9 => LED <= to_std_logic(
+					(c=0) or (c=1) or (c=2) or (c=5) or (c=6) or (c=7) or (c=10) or (c=11)
+					or (c=12) or (c=14));
+				when 10 => LED <= to_std_logic(
+					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
+					or (c=10) or (c=12) or (c=13));
+				when 11 => LED <= to_std_logic(
+					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
+					or (c=10) or (c=12) or (c=13) or (c=14));			
+				when 12 => LED <= to_std_logic(
+					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
+					or (c=10) or (c=12) or (c=13) or (c=14) or (c=15));	
+				when 13 => LED <= to_std_logic(
+					(c=0) or (c=1) or (c=2) or (c=3) or (c=4) or (c=5) or (c=6) or (c=8)
+					or (c=9) or (c=10) or (c=11) or (c=12) or (c=13) or (c=14));	
+				when 14 => LED <= to_std_logic(
+					(c=0) or (c=1) or (c=2) or (c=3) or (c=4) or (c=5) or (c=6) or (c=7)
+					or (c=8) or (c=9) or (c=10) or (c=11) or (c=12) or (c=13) or (c=14));	
+				when 15 => LED <= '1';
+				when others => LED <= '0';
+			end case;
+			c := c + 1;
+		end if;
+	end process;
+	
+	-- The Receive Power signal must be synchronized with the RCK clock.
 	Synchronize_RP: process (RESET, RCK) is 
 	begin
 		if RESET = '1' then
