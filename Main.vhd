@@ -5,7 +5,10 @@
 -- V1.2 [01-APR-26] Bring in the P3051 ring oscillator implementation: a big ring
 -- with no divider creates FCK. Remove the Clock Calibrator process and hard-wire
 -- fck_divisor in firmware. Compile for a 31-gate ring, set route priority on all
--- thirty-one gates, then re-compile for fewer gates and ignore warnings.
+-- thirty-one gates, then re-compile for fewer gates and ignore warnings. Adapt
+-- the P3041 Stimulus Controller for our LED output. In software, we have disabled
+-- the Clock Calibration call. Tested and fully functional without any readout of
+-- sensors or converters. Compiled size 1206 LUTs.
 
 
 
