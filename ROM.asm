@@ -5,23 +5,19 @@
 
 ; Configuration Constants.
 const version          1 ; The firmwarwe version.
-const identifier_hi 0x90 ; 0-255, no restrictions
-const identifier_lo 0x13 ; 0-255, low nibble cannot be 0x0 or 0xF 
-const frequency_low    5 ; Radio frequency calibration.
+const identifier_hi 0x91 ; 0-255, no restrictions
+const identifier_lo 0x11 ; 0-255, low nibble cannot be 0x0 or 0xF 
+const frequency_low   24 ; Radio frequency calibration.
 
 ; CPU Address Map Boundary Constants
-const mvar_bot  0x0000 ; Bottom of Main Variable Memory
-const mvar_top  0x00FF ; Top of Main Program Variable Memory
+const mvar_bot  0x0000 ; Bottom of Main Variable Space
 const stack_bot 0x0100 ; Bottom of Program Stack
-const stack_top 0x01FF ; Top of Program Stack
-const uvar_bot  0x0200 ; Bottom of User Variable Memory
-const uvar_top  0x02FF ; Top of User Variable Memory
-const ctrl_bot  0x0400 ; Bottom Control Register
-const ctrl_top  0x0400 ; Top Control Register
+const uvar_bot  0x0200 ; Bottom of User Variable Space
+const ctrl_bot  0x0400 ; Bottom Control Register Space
 const prog_bot  0x0800 ; Bottom of User Program Memory
 const prog_top  0x0FFF ; Top of User Program Memory
 
-; Address Map Locations
+; Control Register Locations
 const mmu_sdb  0x0400 ; Sensor Data Byte (Write)
 const mmu_scr  0x0401 ; Sensor Control Register (Write)
 const mmu_irqb 0x0402 ; Interrupt Request Bits (Read)
@@ -84,6 +80,7 @@ const bit3_clr   0xF7 ; Bit Three Clear
 ; Timing Constants.
 const min_tcf       72  ; Minimum TCK periods per half RCK period
 const tx_delay      40  ; Wait time for sample transmission, TCK periods
+const boot_delay     3  ; Boot delay, multiples of 7.8 ms.
 const sa_delay      30  ; Wait time for sensor access, TCK periods
 const wp_delay     255  ; Warm-up delay for auxiliary messages
 const num_vars      64  ; Number of vars to clear at start
@@ -129,6 +126,9 @@ const UPinit      0x0023 ; Initialize
 ; Transmission Control Variables
 const xmit_p      0x0028 ; Transmit Period
 const xmit_ch     0x0029 ; Telemetry Channel Number
+
+; Scratch Variables
+const xmit_val    0x00F0 ;
 
 ; User Program Constants
 const ret_code      0x0A ; Return from subroutine instruction
@@ -284,47 +284,6 @@ pop A
 pop F
 ret
 
-
-; ------------------------------------------------------------
-; Calibrate the transmit clock frequency. We take the CPU out
-; of boost, turn off the transmit clock, and repeat a cycle of
-; setting the transmit clock divisor and running the transmit
-; clock to measure its frequency. Eventually we get a diviso
-; that provides a transmit period in the range 195-215 ns. We
-; leave the transmit clock off at the end.
-
-calibrate_tck:
-
-; Push flags and registers, disable interrupts.
-
-push F
-push A           
-push B           
-
-ld A,0x00        ; Clear bits zero and one.
-ld (mmu_ccr),A   ; Disable fast clock and move out of boost.
-ld A,initial_tcd ; The initial value of transmit clock divisor
-push A           ; Push divisor onto the stacku
-pop B            ; Store divisor in B
-cal_tck_1:
-dec B            ; Decrement the divisor.
-push B           ; Push divisor onto stack.
-pop A            ; Pop divisor into A.
-ld (mmu_tcd),A   ; Write divisor to fast clock generator.
-ld A,0x01        ; Set bit zero.
-ld (mmu_ccr),A   ; Enable the fast clock.
-ld A,(mmu_tcf)   ; Read the transmit clock frequency.
-sub A,min_tcf    ; Subtract the minimum frequency.
-ld A,0x00        ; Clear bit zero.
-ld (mmu_ccr),A   ; Disable fast clock.
-jp np,cal_tck_1  ; Try smaller divisor.
-
-; Pop registers and return.
-
-pop B           
-pop A           
-pop F
-ret               
 
 ; ------------------------------------------------------------
 ; The interrupt handler. Assumes that it interrupts a program
@@ -1081,6 +1040,20 @@ seti
 ld HL,stack_bot
 ld SP,HL
 
+; Implement a boot delay sufficient to allow the power supplies to
+; settle and the sensor to power up before we start calibrating and
+; initializing.
+
+ld A,boot_delay 
+push A
+pop B
+pwr_up_lp:
+ld A,0xFF
+dly A
+dec B
+jp nz,pwr_up_lp
+
+
 ; Initialize registers.
 ld A,0
 push A
@@ -1145,10 +1118,6 @@ ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
 ld A,ret_code      ; Put a return opcode at first byte
 ld (IY),A          ; in user program, in case of enable.
 
-; Calibrate the transmit clock.
-
-call calibrate_tck
-
 ; Enable interrupts.
 
 clri
@@ -1164,6 +1133,29 @@ or A,bit1_mask      ; set bit one and
 ld (mmu_dfr),A      ; write to diagnostic flag register.
 xor A,bit1_mask     ; set bit one to zero.
 ld (mmu_dfr),A      ; write to diagnostic flag register.
+
+; Boost the CPU, calculate the square of D, transmit the
+; square on some telemetry channel. Move out of boost.
+
+ld A,0x03
+ld (mmu_ccr),A
+inc D
+push D
+pop A
+ld (mmu_xhb),A
+ld (mmu_xlb),A
+ld A,7
+ld (mmu_xch),A 
+ld (mmu_xcr),A
+ld A,tx_delay
+dly A
+ld A,0x00
+ld (mmu_ccr),A
+
+; Delay for a long time so our transmission is rare.
+
+ld A,0x80
+dly A
 
 ; Deal with any pending commands.
 

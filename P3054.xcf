@@ -20,8 +20,8 @@
 				<BScanVal>0</BScanVal>
 			</Bypass>
 			<File>C:/Kevan/A3054/P3054/impl1/P3054_impl1.jed</File>
-			<FileTime>02/17/26 21:52:49</FileTime>
-			<JedecChecksum>0x54D5</JedecChecksum>
+			<FileTime>03/31/26 14:50:14</FileTime>
+			<JedecChecksum>0x2278</JedecChecksum>
 			<Operation>FLASH Erase,Program,Verify</Operation>
 			<Option>
 				<SVFVendor>JTAG STANDARD</SVFVendor>
@@ -42,7 +42,7 @@
 		<StartTAP>TLR</StartTAP>
 		<EndTAP>TLR</EndTAP>
 		<VerifyUsercode value="FALSE"/>
-		<TCKDelay>4</TCKDelay>
+		<TCKDelay>1</TCKDelay>
 	</ProjectOptions>
 	<CableOptions>
 		<CableName>USB2</CableName>

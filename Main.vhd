@@ -2,6 +2,11 @@
 
 -- V1.1 [25-MAR-26] Based upon P3041 V3.6 of 23-FEB-26. Set up inputs and outputs.
 
+-- V1.2 [01-APR-26] Bring in the P3051 ring oscillator implementation: a big ring
+-- with no divider creates FCK. Remove the Clock Calibrator process and hard-wire
+-- fck_divisor in firmware. Compile for a 31-gate ring, set route priority on all
+-- thirty-one gates, then re-compile for fewer gates and ignore warnings.
+
 
 
 library ieee;  
@@ -31,6 +36,9 @@ entity main is
 		: inout std_logic;
 		xdac -- Transmit DAC Output, to set data transmit frequency
 		: out std_logic_vector(4 downto 0));
+		
+-- Configuration and Calibration of Transmitter.
+	constant fck_divisor : integer := 23;
 		
 -- Configuration of OSR8 CPU.
 	constant prog_cntr_len : integer := 12;
@@ -63,8 +71,6 @@ entity main is
 	constant mmu_xcr  : integer := 11; -- Transmit Control Register (Write)
 	constant mmu_rfc  : integer := 12; -- Radio Frequency Calibration (Write)	
 	constant mmu_ccr  : integer := 13; -- Clock Control Register (Write)
-	constant mmu_tcf  : integer := 14; -- Transmit Clock Frequency (Read)
-	constant mmu_tcd  : integer := 15; -- Transmit Clock Divider (Write)
 	constant mmu_dfr  : integer := 17; -- Diagnostic Flag Register (Read/Write)
 	constant mmu_sr   : integer := 18; -- Status Register (Read)
 	constant mmu_cmp  : integer := 19; -- Command Memory Portal(Read)
@@ -123,10 +129,7 @@ architecture behavior of main is
 	signal sensor_bits_in : std_logic_vector(7 downto 0);
 		
 -- Clock Calibrator
-	signal ENFCK : boolean; -- Enable the Transmit Clock
-	signal tck_frequency : integer range 0 to 255; -- Transmit Clock Counter
-	constant default_fck_divisor : integer := 11;
-	signal fck_divisor : integer range 0 to 15 := default_fck_divisor;
+	signal ENFCK : boolean; -- Enable Fast Clock
 	
 -- Boost Controller
 	signal BOOST : boolean; -- Boost CPU Clock
@@ -248,20 +251,20 @@ begin
 			elsif (state < end_state) then state := state + 1; 
 			else state := end_state; end if;
 		end if;
-		
-		
 	end process;	
-	
--- Ring Oscillator. This oscillator turns on when the microprocessor asserts
--- Enable Transmit Clock (ENFCK). The transmit clock must be running during a
+-- The Fast Clock process produces FCK when the microprocessor asserts Enable
+-- Transmit Clock (ENTCK). The transmit clock must be running during a
 -- sample transmission in order for the timing of the transmission to be correct.
 -- The transmit clock should be turned on during a sensor access as well, so that
--- the sensor access will be quick and the sensor can power down again sooner.
-	Fast_CK : entity ring_oscillator port map (
-		ENABLE => to_std_logic(ENFCK or KEEPFCK or CPUISRV), 
-		calib => fck_divisor,
-		CK => FCK);
-	
+-- the sensor access will be quick and the sensor can power down again sooner. The
+-- ring oscillator will produce FCK at 10 MHz.
+	Fast_Clock: entity ring_oscillator 
+		generic map (ring_len => fck_divisor)	
+		port map (
+			ENABLE => to_std_logic(ENFCK or KEEPFCK or CPUISRV), 
+			CK => FCK
+		);
+
 -- User memory and configuration code for the CPU. This RAM will be initialized at
 -- start-up with a configuration file, and so may be read after power up to configure
 -- sensor. The configuration data will begin at address zero.
@@ -362,8 +365,6 @@ begin
 						when mmu_irqb => cpu_data_in <= int_bits;
 						when mmu_imsk => cpu_data_in <= int_mask;
 						when mmu_dfr => cpu_data_in(3 downto 0) <= df_reg;
-						when mmu_tcf => cpu_data_in <= 
-							std_logic_vector(to_unsigned(tck_frequency,8));
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready Flag
 							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Transmit Clock Enabled
@@ -397,7 +398,6 @@ begin
 			TXWP <= false;
 			ENFCK <= false;
 			BOOST <= false;
-			fck_divisor <= default_fck_divisor;
 			tx_channel <= 0;
 			int_period_1 <= (others => '0');
 			int_period_2 <= (others => '0');
@@ -439,7 +439,6 @@ begin
 						when mmu_ccr  => 
 							ENFCK <= (cpu_data_out(0) = '1');
 							BOOST <= (cpu_data_out(1) = '1');
-						when mmu_tcd  => fck_divisor <= to_integer(unsigned(cpu_data_out));
 						when mmu_dfr  => df_reg <= cpu_data_out(3 downto 0);
 						when mmu_cpr  => CPRST <= true;
 						when mmu_i1ph => int_period_1(15 downto 8) <= cpu_data_out;
@@ -452,42 +451,6 @@ begin
 					end case;
 				end if;
 			end if;
-		end if;
-	end process;
-	
-	-- The Clock Calibrator counts cycles of TCK for one half-period of RCK after the
-	-- assertion of Enable Transmit Clock (ENFCK) and makes them available to the CPU
-	-- in the tck_frequency register. If TCK is 5.00 MHz and RCK is 32.768 kHz, 
-	-- tck_frequency will be 76 when the counter stops. The counter will hold its 
-	-- value until ENFCK is unasserted.
-	Clock_Calibrator : process (ENFCK, TCK) is
-	variable state, next_state : integer range 0 to 3;
-	begin
-		if not ENFCK then
-			state := 0;
-			tck_frequency <= 0;
-		elsif rising_edge(TCK) then
-			next_state := state;
-			if (state = 0) then
-				if ENFCK then 
-					next_state := 1;
-				end if;
-				tck_frequency <= 0;
-			elsif (state = 1) then
-				if (RCK = '1') then 
-					next_state := 2;
-				end if;
-				tck_frequency <= tck_frequency + 1;
-			elsif (state = 2) then
-				if not ENFCK then 
-					next_state := 0;
-				end if;
-				tck_frequency <= tck_frequency;
-			else 
-				next_state := 0;
-				tck_frequency <= tck_frequency;
-			end if;
-			state := next_state;
 		end if;
 	end process;
 	
@@ -962,7 +925,8 @@ begin
 -- With XEN we enable the VCO. We assert XEN while the Message Transmitter is active,
 -- provided that the Command Processor is not receiving a command. We also turn on
 -- the VCO when the CPU asserts Transmit Warmup (TXWP). 
-	XEN <= to_std_logic((TXA or TXWP) and (CMDRDY or (not CPA)));
+--	XEN <= to_std_logic((TXA or TXWP) and (CMDRDY or (not CPA)));
+	XEN <= to_std_logic(TXA);
 			
 -- The Frequency Modulation process takes the transmit bit values provided by
 -- the Message Transmitter, turns them into a sequence of rising and falling

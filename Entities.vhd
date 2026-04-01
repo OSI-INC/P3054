@@ -4,26 +4,30 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 entity ring_oscillator is 
+	generic (
+		ring_len : integer
+	);
 	port (
 		ENABLE : in std_logic;
-		calib : in integer range 0 to 15;
-		CK : out std_logic);
+		CK : out std_logic
+	);
 end;
 
 architecture behavior of ring_oscillator is 
 
--- WARNING: The ring oscillator is a precarious, in that it is hard to predict what
--- small changes in the code will do to its behavior.
+-- We add gates to the ring until we get the correct period. The ring_len 
+-- constant sets the number of gates, and these we form into a ring. The 
+-- ring is built during generation. It cannot be reconfigured at run-time.
+-- It cannot be calibrated automatically with respect to a reference clock. 
+-- It must be calibrated prior to final firmware programming.
 
--- When compiling and routing this oscillator, we have to convince the VHDL compiler
--- to retain four buffers to make the ring, despite its great desire to elimnate them
--- all, and its complaints that we have timing loops. On the LCMXO2-1200ZE-1U, our 
--- four-gate ring runs at about 140 MHz, implying an individual gate delay of 0.8 ns. 
--- The compiler calculates there is no way the chip can count a 140-MHz clock in a 
--- 5-bit counter, so we don't tell it the true speed of the ring when we perform timing 
--- analysis. If we were to increase the ring to five gates, we would no longer have the 
--- resolution in CK period adjustment to guarantee that the period is within the 
--- 195-215 ns interval acceptable for SCT messages.
+-- When compiling and routing this oscillator, we have to convince the VHDL 
+-- compiler to retain the ring buffers, despite its great desire to elimnate 
+-- them all, and its complaints that we have timing loops. In a LCMXO2-1200ZE 
+-- with core power supply dropped to 1.0 V, the gate delay is around 3.5 ns. 
+-- For each gate we add to the ring oscillator, we increase the period by 
+-- roughly 7.0 ns, which is ample resolution for the generation of a period 
+-- in the range 195-215 ns. 
 
 -- Functions and Procedures	
 	function to_std_logic (v: boolean) return std_ulogic is
@@ -35,58 +39,26 @@ architecture behavior of ring_oscillator is
 
 -- Ring Oscillator and Transmit Clock
 	component BUFBA is port (A : in std_logic; Z : out std_logic); end component;
-	signal RIN, R1, R2, R3, R4 : std_logic;
-	attribute syn_keep of RIN, R1, R2, R3, R4 : signal is true;
-	attribute nomerge of RIN, R1, R2, R3, R4 : signal is ""; 
-
--- At times we try a Gray Code counter in the divider, but it never works out.
--- We keep the 0-31 Gray Code values here to save us time in the future, when
--- we once again decide that a Gray Code divider will be faster and better. One
--- problem with the Gray Code counter is that if we set it to count down from
--- our calib signal, the transition from zero to calib will require more than one
--- bit change.
-	type gray_code_type is array (0 to 31) of integer range 0 to 31;
-	constant gray_code : gray_code_type :=
-		(0,1,3,2,6,7,5,4,12,13,15,14,10,11,9,8,24,25,
-		 27,26,30,31,29,28,20,21,23,22,18,19,17,16);
+	signal R : std_logic_vector(ring_len downto 0);
+	attribute syn_keep of R : signal is true;
+	attribute nomerge of R : signal is ""; 
 
 begin
-	ring1 : BUFBA port map (RIN,R1);
-	ring2 : BUFBA port map (R1,R2);
-	ring3 : BUFBA port map (R2,R3);
-	ring4 : BUFBA port map (R3,R4);
-	RIN <= to_std_logic((ENABLE = '1') and (R4 = '0'));
+
+-- Declare the ring oscillator gate entities.
+	gen_ring : for i in 0 to ring_len-1 generate
+        stage : BUFBA
+            port map (
+                A => R(i),
+                Z => R(i+1)
+            );
+    end generate;
+
+-- When ENABLE, feed back the output of the final gate to the first gate.
+	R(0) <= to_std_logic((ENABLE = '1') and (R(ring_len) = '0'));
 	
-	divider : process (RIN) is
-		variable count, next_count : integer range 0 to 15;
-	begin	
-		
-		-- Act on the rising edge of RIN.
-		if rising_edge(RIN) then
-		
-			-- Count down from calib to zero, a total of calib+1 RIN periods will
-			-- make up the CK period.
-			if (count = 0) then 
-				next_count := calib;
-			else 
-				next_count := count - 1;
-			end if;
-			
-			-- We try to get close to 50% duty cycle. With calib = 7, we have CK=1
-			-- for states 0, 1, 2, 3 and CK=0 for 4, 5. 6, 7. With calib = 6, we have
-			-- CK=1 for 0, 1, 2, 3 and CK=0 for 4, 5, 6. We don't use feedback here,
-			-- but instead specify fully the values of CK in terms of calib for all
-			-- values of count so as to speed up the logic behind CK. 
-			if (count <= calib/2) then
-				CK <= '1';
-			else
-				CK <= '0';
-			end if;
-			
-			-- Se the next count.
-			count := next_count;
-		end if;
-	end process;
+-- The clock output.
+	CK <= R(0);
 end behavior;
 ------------ END RING OSCILLATOR DECLARATION -----------
 
