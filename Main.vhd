@@ -10,6 +10,11 @@
 -- the Clock Calibration call. Tested and fully functional without any readout of
 -- sensors or converters. Compiled size 1206 LUTs.
 
+-- V1.3 [02-APR-26] Add I2C interface. Adapt Sensor Controller for the ADS7052.
+-- Re-number the control registers 0-31, there are exactly thirty-two right now.
+-- We can read ADC HI and LO bytes, as well as I2C byte. Sensor Controller is
+-- untested, but I2C communication with TMP117 fully operational.
+
 
 
 library ieee;  
@@ -20,7 +25,7 @@ entity main is
 	port (
 		RP, -- Receive Power
 		RCK, -- Reference Clock
-		SDO -- Serial Data Out for SDI Bus
+		SDO -- Serial Data Out for ADCs
 		: in std_logic; 
 		LV, -- Lower Logic Core Voltage
 		XEN, -- Transmit Enable, for data transmission
@@ -33,7 +38,7 @@ entity main is
 		NADC1, -- Select ADC1, Negative True
 		NADC2, -- Select ADC2, Negative True
 		NADC3, -- Select ADC3, Negative True
-		NADC4 -- Select ADC4, Negative True
+		NADC4  -- Select ADC4, Negative True
 		: out std_logic;
 		SDA -- Serial Data Access for I2C Bus
 		: inout std_logic;
@@ -60,30 +65,38 @@ entity main is
 	constant prog_top : integer := 16#0FFF#;
 	
 -- Memory Map Constants, low nibble addresses in units of bytes;
-	constant mmu_sdb  : integer := 0;  -- Sensor Data Byte (Write)
-	constant mmu_scr  : integer := 1;  -- Sensor Control Register (Write)
-	constant mmu_irqb : integer := 2;  -- Interrupt Request Bits (Read)
-	constant mmu_imsk : integer := 3;  -- Interrupt Mask Bits (Read/Write)
-	constant mmu_irst : integer := 4;  -- Interrupt Reset Bits (Write)
-	constant mmu_dact : integer := 5;  -- Device Active (Write)
-	constant mmu_stc  : integer := 6;  -- Stimulus Current (Write)
-	constant mmu_rst  : integer := 7;  -- System Reset (Write)
-	constant mmu_xhb  : integer := 8;  -- Transmit HI Byte (Write)
-	constant mmu_xlb  : integer := 9;  -- Transmit LO Byte (Write)
-	constant mmu_xch  : integer := 10; -- Transmit Channel Number (Write)
-	constant mmu_xcr  : integer := 11; -- Transmit Control Register (Write)
-	constant mmu_rfc  : integer := 12; -- Radio Frequency Calibration (Write)	
-	constant mmu_ccr  : integer := 13; -- Clock Control Register (Write)
-	constant mmu_dfr  : integer := 17; -- Diagnostic Flag Register (Read/Write)
-	constant mmu_sr   : integer := 18; -- Status Register (Read)
-	constant mmu_cmp  : integer := 19; -- Command Memory Portal(Read)
-	constant mmu_cpr  : integer := 21; -- Command Processor Reset (Write)
-	constant mmu_i1ph : integer := 22; -- Interrupt Timer One Period MSB (Write)
-	constant mmu_i1pl : integer := 23; -- Interrupt Timer One Period LSB (Write)
-	constant mmu_i2ph : integer := 24; -- Interrupt Timer Two Period MSB (Write)
-	constant mmu_i2pl : integer := 25; -- Interrupt Timer Two Period LSB (Write)
-	constant mmu_i3p  : integer := 26; -- Interrupt Timer Three Period MSB (Write)
-	constant mmu_i4p  : integer := 27; -- Interrupt Timer Four Period MSB (Write)
+	constant mmu_irqb  : integer := 16#00#; -- Interrupt Request Bits (Read)
+	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Read/Write)
+	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write)
+	constant mmu_dact  : integer := 16#03#; -- Device Active (Write)
+	constant mmu_stc   : integer := 16#04#; -- Stimulus Current (Write)
+	constant mmu_rst   : integer := 16#05#; -- System Reset (Write)
+	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write)
+	constant mmu_xlb   : integer := 16#07#; -- Transmit LO Byte (Write)
+	constant mmu_xch   : integer := 16#08#; -- Transmit Channel Number (Write)
+	constant mmu_xcr   : integer := 16#09#; -- Transmit Control Register (Write)
+	constant mmu_rfc   : integer := 16#0A#; -- Radio Frequency Calibration (Write)	
+	constant mmu_ccr   : integer := 16#0B#; -- Clock Control Register (Write)
+	constant mmu_dfr   : integer := 16#0C#; -- Diagnostic Flag Register (Read/Write)
+	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
+	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal(Read)
+	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
+	constant mmu_i1ph  : integer := 16#10#; -- Interrupt Timer One Period MSB (Write)
+	constant mmu_i1pl  : integer := 16#11#; -- Interrupt Timer One Period LSB (Write)
+	constant mmu_i2ph  : integer := 16#12#; -- Interrupt Timer Two Period MSB (Write)
+	constant mmu_i2pl  : integer := 16#13#; -- Interrupt Timer Two Period LSB (Write)
+	constant mmu_i3p   : integer := 16#14#; -- Interrupt Timer Three Period MSB (Write)
+	constant mmu_i4p   : integer := 16#15#; -- Interrupt Timer Four Period MSB (Write)
+	constant mmu_i2c00 : integer := 16#16#; -- i2c SDA=0 SCL=0 (Write)
+	constant mmu_i2c01 : integer := 16#17#; -- i2c SDA=0 SCL=1 (Write)
+	constant mmu_i2cA0 : integer := 16#18#; -- i2c SDA=A SCL=0 (Write)
+	constant mmu_i2cA1 : integer := 16#19#; -- i2c SDA=A SCL=1 (Write)
+	constant mmu_i2cZ0 : integer := 16#1A#; -- i2c SDA=Z SCL=0 (Write)
+	constant mmu_i2cZ1 : integer := 16#1B#; -- i2c SDA=Z SCL=1 (Write)
+	constant mmu_i2cMR : integer := 16#1C#; -- i2C Most Recent Eight Bits (Read)
+	constant mmu_spicr : integer := 16#1D#; -- SPI Control Register (Write)
+	constant mmu_spidh : integer := 16#1E#; -- SPI Data MSB (Read)
+	constant mmu_spidl : integer := 16#1F#; -- SPI Data LSB (Read)
 end;
 
 architecture behavior of main is
@@ -123,22 +136,24 @@ architecture behavior of main is
 	signal frequency_low : integer range 0 to 31 := default_frequency_low;
 		
 -- Sensor Controller
-	signal CS : boolean; -- Chip Select for DAC
+	signal CS : boolean; -- Chip Select for ADC
 	signal SAI, -- Sensor Access Initiate 
 		SAA -- Sensor Access Active
 		: boolean := false;
 	attribute syn_keep of SAI, SAA : signal is true;
 	attribute nomerge of SAI, SAA : signal is "";  
-	signal sensor_bits_in : std_logic_vector(7 downto 0);
-		
--- Clock Calibrator
+	signal spi_data : std_logic_vector(15 downto 0);
+	signal spi_ctrl : std_logic_vector(1 downto 0);
+
+-- Sensor Readout
+	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
+
+-- Clock Control
 	signal ENFCK : boolean; -- Enable Fast Clock
-	
--- Boost Controller
 	signal BOOST : boolean; -- Boost CPU Clock
-	signal KEEPFCK : boolean; -- Keep FCK Running
 	attribute syn_keep of BOOST : signal is true;
 	attribute nomerge of BOOST : signal is "";
+	signal KEEPFCK : boolean; -- Keep FCK Running
 	signal SRCK, SSRCK : std_logic;
 	signal RCKLO : boolean;
 	
@@ -208,9 +223,6 @@ architecture behavior of main is
 -- Stimulus Current Controller
 	signal stimulus_current : integer range 0 to 15;
 	
--- Scratch
-	signal SCRATCH : boolean;
-
 -- Functions and Procedures	
 	function to_std_logic (v: boolean) return std_ulogic is
 	begin if v then return('1'); else return('0'); end if; end function;
@@ -364,7 +376,6 @@ begin
 			when ctrl_bot to ctrl_top =>
 				if not CPUWR then 
 					case bottom_bits is
-						when mmu_sdb => cpu_data_in <= sensor_bits_in;
 						when mmu_irqb => cpu_data_in <= int_bits;
 						when mmu_imsk => cpu_data_in <= int_mask;
 						when mmu_dfr => cpu_data_in(3 downto 0) <= df_reg;
@@ -376,11 +387,14 @@ begin
 							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active Flag
 							cpu_data_in(5) <= to_std_logic(BOOST);  -- Boost CPU Flag
 							cpu_data_in(6) <= CME;                  -- Command Memory Empty
+							cpu_data_in(7) <= RCK;                  -- Reference Clock
 						when mmu_cmp =>
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
-						when others =>
-							null;
+						when mmu_i2cMR => cpu_data_in <= i2c_in;
+						when mmu_spidh => cpu_data_in <= spi_data(15 downto 8);
+						when mmu_spidl => cpu_data_in <= spi_data(7 downto 0);
+						when others => null;
 					end case;
 				end if;
 			when prog_bot to prog_top =>
@@ -413,6 +427,8 @@ begin
 			CPRST <= true;
 			DACTIVE <= false;
 			frequency_low <= default_frequency_low;
+			SDA <= 'Z';
+			SCL <= '1';
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
 		-- and transmit activity. Some signals we assert only for one CK period, and 
@@ -426,7 +442,6 @@ begin
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
 					case bottom_bits is
-						when mmu_scr  => SAI <= true;
 						when mmu_xlb  => xmit_bits(7 downto 0) <= cpu_data_out;
 						when mmu_xhb  => xmit_bits(15 downto 8) <= cpu_data_out;
 						when mmu_xch  => tx_channel <= to_integer(unsigned(cpu_data_out));
@@ -450,6 +465,37 @@ begin
 						when mmu_i2pl => int_period_2(7 downto 0) <= cpu_data_out;
 						when mmu_i3p  => int_period_3(7 downto 0) <= cpu_data_out;
 						when mmu_i4p  => int_period_4(7 downto 0) <= cpu_data_out;
+						when mmu_i2c00 => 
+							SDA <= '0';
+							SCL <= '0';
+						when mmu_i2c01 =>
+							SDA <= '0';
+							SCL <= '1';
+						when mmu_i2cA0 => 
+							if (cpu_data_out(7) = '0') then
+								SDA <= '0';
+							else
+								SDA <= 'Z';
+							end if;
+							SCL <= '0';
+						when mmu_i2cA1 =>
+							if (cpu_data_out(7) = '0') then
+								SDA <= '0';
+							else
+								SDA <= 'Z';
+							end if;
+							SCL <= '1';
+						when mmu_i2cZ0 => 
+							SDA <= 'Z';
+							SCL <= '0';
+						when mmu_i2cZ1 => 
+							SDA <= 'Z';
+							SCL <= '1';
+							i2c_in(7 downto 1) <= i2c_in(6 downto 0);
+							i2c_in(0) <= SDA;
+						when mmu_spicr => 
+							spi_ctrl <= cpu_data_out(1 downto 0);
+							SAI <= true;
 						when others => null;
 					end case;
 				end if;
@@ -467,20 +513,17 @@ begin
 	-- boost when both BOOST and ISRV are un-asserted. We use signal 
 	-- RCKLO to coordinate the transition from TCK to RCK. We will perform
 	-- this transition only when both TCK and RCK are LO and guaranteed
-	-- to remain LO for at least two FCK cycles. We do not care about 
-	-- the value of RCKLO when FCK is not running. We care about the value
-	-- only when FCK is running and BOOST has been unasserted. We would
-	-- like to assert RCKLO for 10 us following each falling edge of RCK.
-	-- We know RCK is LO for 15 us after its falling edge, but we are
-	-- keeping time within the Boost Controller using FCK, and we want to
-	-- allow for significant deviation in the frequency of FCK when measuring 
-	-- the 10 us.
-	--
-	-- NOTE: During transitions between boost and slow modes, the transmit 
-	-- clock TCK, will skip some cycles. We must refrain from moving into 
-	-- or out of boost while some other process is relying on TCK to be 
-	-- sustained. For example, we must not boost or un-boost during a 
-	-- telemetry sample transmission.
+	-- to remain LO for at least two FCK cycles. We care about the value of 
+	-- RCKLO only when FCK is running and BOOST has been unasserted. We
+	-- assert RCKLO after each falling edge of RCK for a one hundred FCK
+	-- cycles, which will be 10 us if FCK is exactly 10 MHz, but longer
+	-- if FCK is running slower, as it will before calibration. We assume
+	-- that FCK will always be at least 7 MHz so that RCKLO will never
+	-- exceed 15 us and remain asserted during the next rising edge of RCK.
+	-- During transitions between boost and slow modes, TCK will skip some
+	-- cycles. We must refrain from moving in and out of boost while some
+	-- other process is relying on TCK to be sustained. For example, we must 
+	-- not boost or un-boost during a telemetry sample transmission.
 	Boost_Controller : process (RESET, FCK) is
 	variable state, next_state : integer range 0 to 3;
 	constant end_count : integer := 100;
@@ -735,16 +778,15 @@ begin
 		end if;
 	end process;
 
-
-	-- The Sensor Controller reads out the eight-bit battery monitoring ADC when it
-	-- sees Sensor Access Initiate (SAI). While running, it asserts Sensor Acces Active
-	-- (SAA), which the CPU can poll until the access is complete. It runs off the 
-	-- Transmit Clock (TCK), so the CPU must enable TCK with ENFCK in order for the 
-	-- process to start. The SAI signal will be asserted for one period of CK following
-	-- a CPU write to the SAI location. Further writes to the same location will have
-	-- no effect until the Sensor Controller returns to its idle state.
-	Sensor_Controller : process (RESET, TCK) is
-		variable state, next_state : integer range 0 to 31 := 0;
+	-- The Sensor Controller reads out one of the fourteen-bit ADCs when Sensor Access 
+	-- Initiate (SAI) is asserted. While running, it asserts Sensor Acces Active (SAA).
+	-- The CPU can poll SAA until the access is complete. The Sensor Controller runs
+	-- of Transmit Clock (FCK). The SAI signal must be asserted for one period of CK 
+	-- following a CPU write to the SAI location. Further writes to the same location
+	-- will have no effect until the Sensor Controller returns to its idle state.
+	Sensor_Controller : process (RESET, FCK) is
+		variable state, next_state : integer range 0 to 63 := 0;
+		constant end_access : integer := 40;
 		
  	begin
 		-- Upon startup, we make sure we are in the idle state and we are not
@@ -756,74 +798,42 @@ begin
 		-- read out two zeros, read eight data bits, and load the result into the
 		-- sensor register. By default, the state machine increases its state variable
 		-- by one, so we state explicitly when the state should do otherwise.
-		elsif rising_edge(TCK) then
-			next_state := state + 1;
-			
+		elsif rising_edge(FCK) then
 			case state is
-				when 0 => -- CS unasserted, SCK HI.
-					CS <= false; SCK <= '0';
-					if not SAI then next_state := 0; end if;
-				when 1 => -- Assert CS to start conversion, a zero appears on SDO.
-					CS <= true; SCK <= '1';
-				when 2 => -- Clock the second zero out of DAC.
-					CS <= true; SCK <= '0';
-				when 3 => -- Prepare another falling edge on SCK.
-					CS <= true; SCK <= '1';
-				when 4 => -- Clock D7 out of DAC
-					CS <= true; SCK <= '0';
-				when 5 => -- Read D7 into sensor register.
-					CS <= true; SCK <= '1';
-					sensor_bits_in(7) <= SDO;			
-				when 6 => -- Clock D6 out of DAC
-					CS <= true; SCK <= '0';
-				when 7 => -- Read D6 into sensor register.
-					CS <= true; SCK <= '1';
-					sensor_bits_in(6) <= SDO;			
-				when 8 => -- Clock D5 out of DAC
-					CS <= true; SCK <= '0';
-				when 9 => -- Read D5 into sensor register.
-					CS <= true; SCK <= '1';
-					sensor_bits_in(5) <= SDO;			
-				when 10 => -- Clock D4 out of DAC
-					CS <= true; SCK <= '0';
-				when 11 => -- Read D4 into sensor register.
-					CS <= true; SCK <= '1';
-					sensor_bits_in(4) <= SDO;			
-				when 12 => -- Clock D3 out of DAC
-					CS <= true; SCK <= '0';
-				when 13 => -- Read D3 into sensor register.
-					CS <= true; SCK <= '1';
-					sensor_bits_in(3) <= SDO;			
-				when 14 => -- Clock D2 out of DAC
-					CS <= true; SCK <= '0';
-				when 15 => -- Read D2 into sensor register.
-					CS <= true; SCK <= '1';
-					sensor_bits_in(2) <= SDO;			
-				when 16 => -- Clock D1 out of DAC
-					CS <= true; SCK <= '0';
-				when 17 => -- Read D1 into sensor register.
-					CS <= true; SCK <= '1';
-					sensor_bits_in(1) <= SDO;			
-				when 18 => -- Clock D0 out of DAC
-					CS <= true; SCK <= '0';
-				when 19 => -- Read D0 into sensor register.
-					CS <= true; SCK <= '1';
-					sensor_bits_in(0) <= SDO;			
-				when 20 => -- Drive SCK LO again
-					CS <= true; SCK <= '0';
-				when 21 => -- Unassert CS and leave SCK LO.
-					CS <= false; SCK <= '0';
-					if SAI then next_state := 21; end if;
-				when others => next_state := 0;
+				when 0 => 
+					if SAI then 
+						next_state := 1;
+					else
+						next_state := 0;
+					end if;
+					SCK <= '1';
+				when 1 to end_access-1 =>
+					next_state := state + 1;
+					SCK <= not SCK;
+				when end_access =>
+					if SAI then 
+						next_state := end_access; 
+					else
+						next_state := 0;
+					end if;
+					SCK <= '1';
+				when others =>
+					next_state := 0;
+					SCK <= '1';
 			end case;
-			SAA <= (state /= 0) and (state /= 21);
+			SAA <= (state /= 0) and (state /= end_access);
+			CS <= (state /= 0) and (state /= end_access);
+			if (state >= 3) and (state <= 33) and ((state mod 2) = 1) then
+				spi_data(15 downto 1) <= spi_data(14 downto 0);
+				spi_data(0) <= SDO;
+			end if;
 			state := next_state;
 		end if;
 		
-		NADC1 <= to_std_logic(not CS);
-		NADC1 <= '1';
-		NADC1 <= '1';
-		NADC1 <= '1';
+		NADC1 <= to_std_logic(not (CS and (spi_ctrl = "00")));
+		NADC2 <= to_std_logic(not (CS and (spi_ctrl = "01")));
+		NADC3 <= to_std_logic(not (CS and (spi_ctrl = "10")));
+		NADC4 <= to_std_logic(not (CS and (spi_ctrl = "11")));
 	end process;
 
 -- The Message Transmitter responds to Transmit Initiate (TXI) by turning on the 
@@ -1380,7 +1390,9 @@ begin
 
 -- Test Point appears on P1-7.
 --	TP <= CPUSIG(0);
-	TP <= df_reg(1);
+--	TP <= SDO;
+	TP <= df_reg(2);
+--	TP <= spi_data(15);
 --	TP <= to_std_logic(INTZ1);
 --	TP <= CPUSIG(1);
 --	TP <= df_reg(0);	
@@ -1395,7 +1407,4 @@ begin
 --	TP <= CK;
 --	TP <= to_std_logic(RCKLO);
 --	TP <= RCK;
-
-	SDA <= '0';
-
 end behavior;

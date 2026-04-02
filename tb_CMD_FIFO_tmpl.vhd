@@ -49,7 +49,7 @@ begin
       Data <= (others => '0') ;
       wait for 100 ns;
       wait until Reset = '0';
-      for i in 0 to 2051 loop
+      for i in 0 to 1027 loop
         wait until WrClock'event and WrClock = '1';
         Data <= Data + '1' after 1 ns;
       end loop;
@@ -66,7 +66,7 @@ begin
       WrEn <= '0' ;
       wait for 100 ns;
       wait until Reset = '0';
-      for i in 0 to 2051 loop
+      for i in 0 to 1027 loop
         wait until WrClock'event and WrClock = '1';
         WrEn <= '1' after 1 ns;
       end loop;
@@ -81,7 +81,7 @@ begin
       wait until Reset = '0';
       wait until WrEn = '1';
       wait until WrEn = '0';
-      for i in 0 to 2051 loop
+      for i in 0 to 1027 loop
         wait until RdClock'event and RdClock = '1';
         RdEn <= '1' after 1 ns;
       end loop;
