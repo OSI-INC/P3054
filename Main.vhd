@@ -1391,7 +1391,7 @@ begin
 -- Test Point appears on P1-7.
 --	TP <= CPUSIG(0);
 --	TP <= SDO;
-	TP <= df_reg(2);
+	TP <= df_reg(0);
 --	TP <= spi_data(15);
 --	TP <= to_std_logic(INTZ1);
 --	TP <= CPUSIG(1);

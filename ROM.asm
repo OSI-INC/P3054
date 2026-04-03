@@ -153,14 +153,42 @@ const op_ver        11 ; 0 operands
 const synch_nostim  32 ; 
 const synch_stim    96 ;
 
-; I2C Constants
-const tsen_addr   0x49 ; TMP117 address
-const tsen_mreg   0x00 ; TMP117 measurement register
-const tsen_creg   0x01 ; TMP117 configuration register
-const tsen_sdch   0x0C ; TMP117 shudown command MSB
-const tsen_sdcl   0x00 ; TMP117 shudown command LSB
-const tsen_mch    0x0C ; TMP117 measurement command MSB
-const tsen_mcl    0x00 ; TMP117 measurement command LSB
+; TMP117 Temperature Sensor Constants. The TMP117 provides
+; sixteen-bit read and write registers to the I2C bus.
+const tmp117_addr   0x49 ; I2C address
+const tmp117_treg   0x00 ; Temperature register
+const tmp117_creg   0x01 ; Configuration register
+const tmp117_oneh   0x0C ; For Configuration, one-shot measurement, MSB
+const tmp117_onel   0x00 ; For Configuration, one-shot measurement, LSB
+const tmp117_fasth  0x00 ; For Configuration, fast measurement, MSB
+const tmp117_fastl  0x00 ; For Configuration, fast measurement, LSB
+
+; BMA423 Accelerometer Addresses and Configuration Values. We give
+; the internal addresses of registers. When the address is always 
+; for a two-byte read, we say so.
+const bma423_addr     0x18 ; I2C address
+const bma423_id       0x00 ; Identifier register
+const bma423_x        0x12 ; ACC_X register, two bytes
+const bma423_y        0x14 ; ACC_Y register, two bytes
+const bma423_z        0x16 ; ACC_Z register, two bytes
+const bma423_time0    0x18 ; SENSOR_TIME_0 register
+const bma423_time1    0x19 ; SENSOR_TIME_1 register
+const bma423_time2    0x1A ; SENSOR_TIME_2 register
+const bma423_temp     0x22 ; TEMPERATURE register
+const bma423_status   0x2A ; INTERNAL_STATUS register
+const bma423_aconf    0x40 ; ACC_CONF register
+const bma423_arange   0x41 ; ACC_RANGE register
+const bma423_pctrl    0x7D ; PWR_CTRL register
+const bma423_pconf    0x7C ; PWR_CONF register
+const bma423_2g       0x00 ; For ACC_RANGE, +-2g
+const bma423_4g       0x01 ; For ACC_RANGE, +-4g
+const bma423_8g       0x02 ; For ACC_RANGE, +-8g
+const bma423_16g      0x03 ; For ACC_RANGE, +-16g
+const bma423_25hz     0x06 ; For ACC_CONF, 25 Hz, no averaging, no filter
+const bma423_100hz    0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
+const bma423_enable   0x04 ; For PWR_CTRL, enable data acquisition.
+const bma423_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
+const bma423_sdly       50 ; Startup delay in RCK periods.
 
 ; Random Number Generator.
 const rand_taps   0xB4 ; Determines which taps to XOR.
@@ -414,10 +442,11 @@ pop F
 ret  
 
 ; ------------------------------------------------------------
-; Shut down the temperature sensor. Current consumption will drop
-; to 250 nA and no measurements will be made.
+; Perform a one-shot measurement of temperature and shut down
+; the sensor afterwards. Current consumption will drop to 
+; about 250 nA after the single measurement.
 
-tsen_shdn:
+tmp117_single:
 
 ; Push flags and registers.
 
@@ -428,16 +457,16 @@ push C
 push H
 push L
 
-ld A,tsen_addr
+ld A,tmp117_addr
 push A
 pop H
-ld A,tsen_creg
+ld A,tmp117_creg
 push A
 pop L
-ld A,tsen_sdch
+ld A,tmp117_oneh
 push A
 pop C
-ld A,tsen_sdcl
+ld A,tmp117_onel
 push A
 pop B
 call i2c_wr16
@@ -451,10 +480,10 @@ pop F
 ret
 
 ; ------------------------------------------------------------
-; Configure the temperature sensor for one measurement per second
-; with no averaging.
+; Configure the temperature sensor for fast temperature and
+; continuous temperature measurements.
 
-tsen_wake:
+tmp117_fast:
 
 ; Push flags and registers.
 
@@ -465,16 +494,16 @@ push C
 push H
 push L
 
-ld A,tsen_addr
+ld A,tmp117_addr
 push A
 pop H
-ld A,tsen_creg
+ld A,tmp117_creg
 push A
 pop L
-ld A,tsen_mch
+ld A,tmp117_fasth
 push A
 pop C
-ld A,tsen_mcl
+ld A,tmp117_fastl
 push A
 pop B
 call i2c_wr16
@@ -487,6 +516,82 @@ pop A
 pop F
 ret
 
+
+; ------------------------------------------------------------
+; Configure the accelerometer. We write to the power configuration 
+; register, then the power control register, then wait for a time 
+; greater than 500 us, then set the update rate and measurement range. 
+; Beware changing the order of the first two writes and the delay. The 
+; accelerometer will deliver zeros if we deviate from the correct sequence.
+
+bma423_config:
+
+push F
+push A
+push B
+push C
+push H
+push L
+
+; Establish the I2C address in Register H, where it will remain.
+
+ld A,bma423_addr
+push A
+pop H
+
+; Specify the PWR_CONF register with its sub-address in L and 
+; a value in C. We are configuring for power-save mode.
+
+ld A,bma423_pconf
+push A
+pop L
+ld A,bma423_pwrsv
+push A
+pop C
+call i2c_wr8
+
+; Enable data acquisition by writing to the PWR_CTRL register.
+
+ld A,bma423_pctrl
+push A
+pop L
+ld A,bma423_enable
+push A
+pop C
+call i2c_wr8
+
+; Wait for the sensor to configure.
+
+ld A,bma423_sdly
+dly A 
+
+; Configure the accelerometer for 100 Hz update.
+
+ld A,bma423_aconf 
+push A
+pop L
+ld A,bma423_100hz
+push A
+pop C
+call i2c_wr8
+
+; Configure for +-16 g range.
+
+ld A,bma423_arange
+push A
+pop L
+ld A,bma423_16g
+push A
+pop C
+call i2c_wr8
+
+pop L
+pop H
+pop C
+pop B
+pop A
+pop F
+ret
 
 ; ------------------------------------------------------------
 ; The interrupt handler. Assumes that it interrupts a program
@@ -704,10 +809,29 @@ ld (mmu_irst),A     ; with the bit three mask.
 ld A,(xmit_ch)      ; Load A with telemetry channel number
 ld (mmu_xch),A      ; and write the transmit channel register.
 
-ld A,tsen_addr
+
+; Read out temperature sensor.
+ld A,tmp117_addr
 push A
 pop H
-ld A,tsen_mreg
+ld A,tmp117_treg
+push A
+pop L
+call i2c_rd16
+push C
+pop A
+add A,off_16bs   
+ld (mmu_xhb),A
+push B
+pop A
+ld (mmu_xlb),A
+jp int_xmit_rdy
+
+; Read out the timer on the accelerometer.
+ld A,bma423_addr
+push A
+pop H
+ld A,bma423_time0
 push A
 pop L
 call i2c_rd16
@@ -1002,7 +1126,7 @@ ret
 
 get_cmd_byte:
 
-const gcb_dsp 1     ; Set to one for debugging.
+const gcb_dsp 0     ; Set to one for debugging.
 const gcb_dly 33    ; Bit period for display.
 const gcb_nb  11    ; Total number of bits minus start bit.
 
@@ -1262,7 +1386,7 @@ ld A,(mmu_imsk)      ; Enable interrupt timer four
 or A,bit3_mask       ; with bit three of interrupt
 ld (mmu_imsk),A      ; mask.
 call annc_ack        ; Acknowledge xon.
-call tsen_wake       ; Wake up the temperature sensor.
+call tmp117_fast     ; Wake up the temperature sensor.
 check_xon_end:
 
 ; Stop data transmission.
@@ -1278,7 +1402,7 @@ ld A,(mmu_imsk)      ; Mask timer interrupt
 and A,bit3_clr       ; with bit three of
 ld (mmu_imsk),A      ; interrupt mask.
 call annc_ack        ; Acknowledge xoff.
-call tsen_shdn       ; Shut down the temperature sensor.
+call tmp117_single   ; Shut down the temperature sensor.
 check_xoff_end:
 
 ; Battery voltage measurement request instruction. This instruction
@@ -1532,12 +1656,10 @@ ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
 ld A,ret_code      ; Put a return opcode at first byte
 ;ld (IY),A          ; in user program, in case of enable.
 
-; Calibrate the transmit clock.
-
+; Calibrate the transmit clock and initialize the sensors.
 call calibrate_tck
-
-; Initialize sensors.
-call tsen_shdn
+;call bma423_config
+call tmp117_single
 
 ; Enable interrupts.
 
@@ -1621,6 +1743,180 @@ ld (mmu_dva),A
 jp main_loop
 
 ; ---------------------------------------------------------------
+
+
+; ------------------------------------------------------------
+; I2C Eight-Bit Write. Write to one eight-bit register 
+; location on the sensor. We pass the I2C device address in 
+; Register H, the sub-address in Register L, and the eight
+; bits to write in Register C.
+
+i2c_wr8:
+       
+; I2C: Start code (ST)
+
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2c01),A  ; 3
+ld (mmu_i2c00),A  ; 3
+
+; I2C: Write seven-bit device address and !WRITE flag (SAD+W).
+; The device address is in Register H.
+
+push H            ; 1
+pop A             ; 2
+sla A             ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; I2C: Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; I2C: Write eight-bit sub-address (SUB), which has
+; been passed in Register L.
+
+push L            ; 1
+pop A             ; 2
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; I2C: Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; I2C: Write the first eight data bits, which we have passed
+; in Register C.
+
+push C            ; 1
+pop A             ; 2
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; I2C: Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; I2C: Stop code (SP).
+
+ld (mmu_i2c00),A  ; 3
+ld (mmu_i2c01),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+     
+ret
 
 
 ; ------------------------------------------------------------
