@@ -153,6 +153,15 @@ const op_ver        11 ; 0 operands
 const synch_nostim  32 ; 
 const synch_stim    96 ;
 
+; M24C16 EEPROM Constants. The M24C16 provides a 2K x 8 non-volatile
+; memory with an I2C interface. We can read 1-2048 bytes in one
+; read cycle. We can write 1-16 bytes in one write cycle. The device
+; address consists only of four bits, the lower three bits of the
+; seven-biit I2C address are used to select one of eight 256-byte
+; blocks within the EEPROM.
+const m24c16_addr       0x50 ; I2C address, top four bits only.
+const m24c16_hmask      0x0F ; 
+
 ; TMP117 Temperature Sensor Constants. The TMP117 provides
 ; sixteen-bit read and write registers to the I2C bus.
 const tmp117_addr   0x49 ; I2C address
@@ -502,6 +511,7 @@ pop A
 pop F
 ret
 
+
 ; ------------------------------------------------------------
 ; The interrupt handler. Assumes that it interrupts a program
 ; running off the slow clock. Boosts as quickly as possible to
@@ -718,6 +728,21 @@ ld (mmu_irst),A     ; with the bit three mask.
 ld A,(xmit_ch)      ; Load A with telemetry channel number
 ld (mmu_xch),A      ; and write the transmit channel register.
 
+; Read a byte from the EEPROM
+ld A,m24c16_addr
+push A
+pop H
+ld A,0x00
+push A
+pop L
+call i2c_rd16
+push C
+pop A
+ld (mmu_xhb),A
+push B
+pop A
+ld (mmu_xlb),A
+jp int_xmit_rdy
 
 ; Read out temperature sensor.
 ld A,tmp117_addr
@@ -1569,6 +1594,16 @@ ld A,ret_code      ; Put a return opcode at first byte
 call calibrate_tck
 ;call bma423_config
 call tmp117_single
+ld A,m24c16_addr
+push A
+pop H
+ld A,0x00
+push A
+pop L
+ld A,0xA5
+push A
+pop C
+call i2c_wr8
 
 ; Enable interrupts.
 
