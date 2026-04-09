@@ -46,7 +46,7 @@ entity main is
 		: out std_logic_vector(4 downto 0));
 		
 -- Configuration and Calibration of Transmitter.
-	constant fck_divisor : integer := 23;
+	constant fck_divisor : integer := 25;
 		
 -- Configuration of OSR8 CPU.
 	constant prog_cntr_len : integer := 12;
@@ -131,18 +131,20 @@ architecture behavior of main is
 	signal xmit_bits : std_logic_vector(15 downto 0);
 	constant tx_channel_default : integer := 1;
 	signal tx_channel : integer range 0 to 255 := tx_channel_default;
-	constant frequency_step : integer := 1; 
+	constant frequency_step : integer := 2; 
 	constant default_frequency_low : integer := 5;
 	signal frequency_low : integer range 0 to 31 := default_frequency_low;
 		
 -- Sensor Controller
-	signal CS : boolean; -- Chip Select for ADC
-	signal SAI, -- Sensor Access Initiate 
-		SAA -- Sensor Access Active
+	signal ADCCAL, -- Calibrate the Selected ADC
+		ADCRD, -- ADC Access Initiate 
+		ADCRL, -- ADC Rotate Left
+		ADCRRL, -- ADC Rotate Left Again
+		ADCBSY -- ADC Busy
 		: boolean := false;
-	attribute syn_keep of SAI, SAA : signal is true;
-	attribute nomerge of SAI, SAA : signal is "";  
-	signal spi_data : std_logic_vector(15 downto 0);
+	attribute syn_keep of ADCRD, ADCBSY : signal is true;
+	attribute nomerge of ADCRD, ADCBSY : signal is "";  
+	signal adc_data : std_logic_vector(15 downto 0);
 	signal spi_ctrl : std_logic_vector(1 downto 0);
 
 -- Sensor Readout
@@ -364,7 +366,7 @@ begin
 		-- along with CPU Write. They will be ready before the falling 
 		-- edge of the CPU clock.
 		all_bits := to_integer(unsigned(cpu_addr));
-		bottom_bits := to_integer(unsigned(cpu_addr(7 downto 0)));
+		bottom_bits := to_integer(unsigned(cpu_addr(5 downto 0)));
 		cpu_data_in <= (others => '0');
 		case all_bits is
 			when ram_bot to ram_top => 
@@ -382,7 +384,7 @@ begin
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready Flag
 							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Transmit Clock Enabled
-							cpu_data_in(2) <= to_std_logic(SAA);    -- Sensor Access Active Flag
+							cpu_data_in(2) <= to_std_logic(ADCBSY); -- ADC Busy Flag
 							cpu_data_in(3) <= to_std_logic(TXA);    -- Transmit Active Flag
 							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active Flag
 							cpu_data_in(5) <= to_std_logic(BOOST);  -- Boost CPU Flag
@@ -392,8 +394,8 @@ begin
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
-						when mmu_spidh => cpu_data_in <= spi_data(15 downto 8);
-						when mmu_spidl => cpu_data_in <= spi_data(7 downto 0);
+						when mmu_spidh => cpu_data_in <= adc_data(15 downto 8);
+						when mmu_spidl => cpu_data_in <= adc_data(7 downto 0);
 						when others => null;
 					end case;
 				end if;
@@ -410,7 +412,7 @@ begin
 		-- CK period. After a reset, the cpu address will not select the SWRST location, so
 		-- SWRST will be cleared on the next falling edge of CK.
 		if (RESET = '1') then
-			SAI <= false;
+			ADCRD <= false;
 			TXI <= false;
 			TXWP <= false;
 			ENFCK <= false;
@@ -436,7 +438,7 @@ begin
 		elsif falling_edge(CK) then
 			CPRST <= false;
 			SWRST <= false;
-			SAI <= false;
+			ADCRD <= false;
 			TXI <= false;
 			int_rst <= (others => '0');
 			if CPUDS and CPUWR then 
@@ -495,7 +497,10 @@ begin
 							i2c_in(0) <= SDA;
 						when mmu_spicr => 
 							spi_ctrl <= cpu_data_out(1 downto 0);
-							SAI <= true;
+							ADCRD <= (cpu_data_out(2) = '1');
+							ADCCAL <= (cpu_data_out(3) = '1');
+							ADCRL <= (cpu_data_out(4) = '1');
+							ADCRRL <= (cpu_data_out(5) = '1');
 						when others => null;
 					end case;
 				end if;
@@ -778,62 +783,82 @@ begin
 		end if;
 	end process;
 
-	-- The Sensor Controller reads out one of the fourteen-bit ADCs when Sensor Access 
-	-- Initiate (SAI) is asserted. While running, it asserts Sensor Acces Active (SAA).
-	-- The CPU can poll SAA until the access is complete. The Sensor Controller runs
-	-- of Transmit Clock (FCK). The SAI signal must be asserted for one period of CK 
-	-- following a CPU write to the SAI location. Further writes to the same location
-	-- will have no effect until the Sensor Controller returns to its idle state.
-	Sensor_Controller : process (RESET, FCK) is
+	-- The ADC Controller reads out one of the fourteen-bit ADCs when ADC Read
+	-- (ADCRD) is asserted. While running, it asserts ADC BUSY (ADCBSY).
+	-- The CPU can poll ADCBSY until the access is complete or it can wait for
+	-- 16 CPU clock cycles for data to be available or 25 CPU cycles for a self-
+	-- calibration to complete. The ADC Controller runs on the Fast Clock (FCK). 
+	-- If FCK is not running, the ADC Controller will do nothing. The ADCRD signal 
+	-- must be asserted for at least one TCK period. The ADCCAL flag tells the
+	-- controller to read twenty-four bits, which causes a self-calibration
+	-- provided that the calibration access is the first one after power-up.
+	ADC_Controller : process (RESET, FCK) is
 		variable state, next_state : integer range 0 to 63 := 0;
-		constant end_access : integer := 40;
+		constant end_access : integer := 50;
 		
  	begin
-		-- Upon startup, we make sure we are in the idle state and we are not
-		-- requesting a byte access by the Sensor Interface.
+		-- Upon startup, we make sure we are in the idle state.
 		if (RESET = '1') then 
 			state := 0;
+			ADCBSY <= false;
 			
-		-- The Sensor Contoller proceeds through states so as initiate a conversion,
-		-- read out two zeros, read eight data bits, and load the result into the
-		-- sensor register. By default, the state machine increases its state variable
-		-- by one, so we state explicitly when the state should do otherwise.
+		-- The ADC Contoller proceeds through states so as initiate a conversion,
+		-- read out one zero, fourteen data bits, and three trailing zeros. If
+		-- the ADCCAL flag is set, it reads out nine trailing zeros so as to 
+		-- initiate an ADC self-calibration. When ADCCAL is not set, the fourteen 
+		-- data bits are shifted into the adc_data register.
 		elsif rising_edge(FCK) then
-			case state is
-				when 0 => 
-					if SAI then 
-						next_state := 1;
-					else
-						next_state := 0;
-					end if;
-					SCK <= '1';
-				when 1 to end_access-1 =>
-					next_state := state + 1;
-					SCK <= not SCK;
-				when end_access =>
-					if SAI then 
-						next_state := end_access; 
-					else
-						next_state := 0;
-					end if;
-					SCK <= '1';
-				when others =>
+			if (state = 0) then 
+				if ADCRD then 
+					next_state := 1;
+				else 
 					next_state := 0;
-					SCK <= '1';
-			end case;
-			SAA <= (state /= 0) and (state /= end_access);
-			CS <= (state /= 0) and (state /= end_access);
-			if (state >= 3) and (state <= 33) and ((state mod 2) = 1) then
-				spi_data(15 downto 1) <= spi_data(14 downto 0);
-				spi_data(0) <= SDO;
+				end if;
+			end if;
+			if (state > 0) and (state < end_access) then
+				next_state := state + 1;
+			end if;
+			if (state = end_access) then
+				if ADCRD then
+					next_state := state;
+				else
+					next_state := 0;
+				end if;
+			end if;
+			if ADCCAL then
+				SCK <= to_std_logic(
+					(state = 0) 
+					or ((state < end_access - 2) and (state mod 2) = 1));
+				ADCBSY <= (state > 0) and (state <= end_access - 2);
+			else 
+				SCK <= to_std_logic(
+					(state = 0) 
+					or ((state < end_access - 14) and ((state mod 2) = 1))
+				);
+				ADCBSY <= (state > 0) and (state <= end_access - 14);
+				if (state = 1) then
+					adc_data <= (others => '0');
+				end if;
+				if (state >= 4) and (state <= 30) and ((state mod 2) = 0) then
+					adc_data(15 downto 1) <= adc_data(14 downto 0);
+					adc_data(0) <= SDO;
+				end if;
+				if (state = 31) and ADCRL then
+					adc_data(15 downto 1) <= adc_data(14 downto 0);
+					adc_data(0) <= '0';
+				end if;
+				if (state = 32) and ADCRRL then
+					adc_data(15 downto 1) <= adc_data(14 downto 0);
+					adc_data(0) <= '0';
+				end if;
 			end if;
 			state := next_state;
 		end if;
 		
-		NADC1 <= to_std_logic(not (CS and (spi_ctrl = "00")));
-		NADC2 <= to_std_logic(not (CS and (spi_ctrl = "01")));
-		NADC3 <= to_std_logic(not (CS and (spi_ctrl = "10")));
-		NADC4 <= to_std_logic(not (CS and (spi_ctrl = "11")));
+		NADC1 <= to_std_logic(not (ADCBSY and (spi_ctrl = "00")));
+		NADC2 <= to_std_logic(not (ADCBSY and (spi_ctrl = "01")));
+		NADC3 <= to_std_logic(not (ADCBSY and (spi_ctrl = "10")));
+		NADC4 <= to_std_logic(not (ADCBSY and (spi_ctrl = "11")));
 	end process;
 
 -- The Message Transmitter responds to Transmit Initiate (TXI) by turning on the 
@@ -1388,11 +1413,14 @@ begin
 		CPA <= (state /= idle_s);
 	end process;
 
+	MSR <= '0';
+	DC <= '1';
+	
 -- Test Point appears on P1-7.
 --	TP <= CPUSIG(0);
 --	TP <= SDO;
 	TP <= df_reg(0);
---	TP <= spi_data(15);
+--	TP <= adc_data(13);
 --	TP <= to_std_logic(INTZ1);
 --	TP <= CPUSIG(1);
 --	TP <= df_reg(0);	

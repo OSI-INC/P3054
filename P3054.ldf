@@ -21,6 +21,9 @@
         <Source name="Main.vhd" type="VHDL" type_short="VHDL">
             <Options top_module="main"/>
         </Source>
+        <Source name="A3054.tpf" type="Timing Analysis" type_short="TPF" excluded="TRUE">
+            <Options/>
+        </Source>
         <Source name="P3054.lpf" type="Logic Preference" type_short="LPF">
             <Options/>
         </Source>

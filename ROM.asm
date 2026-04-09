@@ -153,51 +153,64 @@ const op_ver        11 ; 0 operands
 const synch_nostim  32 ; 
 const synch_stim    96 ;
 
-; M24C16 EEPROM Constants. The M24C16 provides a 2K x 8 non-volatile
-; memory with an I2C interface. We can read 1-2048 bytes in one
+; Non-Volatile Memory Constants. The M24C16 EEPROM provides 2K x 8 
+; of NVM with an I2C interface. We can read 1-2048 bytes in one
 ; read cycle. We can write 1-16 bytes in one write cycle. The device
 ; address consists only of four bits, the lower three bits of the
 ; seven-biit I2C address are used to select one of eight 256-byte
 ; blocks within the EEPROM.
-const m24c16_addr       0x50 ; I2C address, top four bits only.
-const m24c16_hmask      0x0F ; 
+const nvm_addr       0x50 ; I2C address, top four bits only.
+const nvm_hmask      0x0F ; 
 
-; TMP117 Temperature Sensor Constants. The TMP117 provides
+; TMP117 Temperature Sensor Constants. The tmp provides
 ; sixteen-bit read and write registers to the I2C bus.
-const tmp117_addr   0x49 ; I2C address
-const tmp117_treg   0x00 ; Temperature register
-const tmp117_creg   0x01 ; Configuration register
-const tmp117_oneh   0x0C ; For Configuration, one-shot measurement, MSB
-const tmp117_onel   0x00 ; For Configuration, one-shot measurement, LSB
-const tmp117_fasth  0x00 ; For Configuration, fast measurement, MSB
-const tmp117_fastl  0x00 ; For Configuration, fast measurement, LSB
+const tmp_addr   0x49 ; I2C address
+const tmp_treg   0x00 ; Temperature register
+const tmp_creg   0x01 ; Configuration register
+const tmp_oneh   0x0C ; For Configuration, one-shot measurement, MSB
+const tmp_onel   0x00 ; For Configuration, one-shot measurement, LSB
+const tmp_fasth  0x00 ; For Configuration, fast measurement, MSB
+const tmp_fastl  0x00 ; For Configuration, fast measurement, LSB
 
 ; BMA423 Accelerometer Addresses and Configuration Values. We give
 ; the internal addresses of registers. When the address is always 
 ; for a two-byte read, we say so.
-const bma423_addr     0x18 ; I2C address
-const bma423_id       0x00 ; Identifier register
-const bma423_x        0x12 ; ACC_X register, two bytes
-const bma423_y        0x14 ; ACC_Y register, two bytes
-const bma423_z        0x16 ; ACC_Z register, two bytes
-const bma423_time0    0x18 ; SENSOR_TIME_0 register
-const bma423_time1    0x19 ; SENSOR_TIME_1 register
-const bma423_time2    0x1A ; SENSOR_TIME_2 register
-const bma423_temp     0x22 ; TEMPERATURE register
-const bma423_status   0x2A ; INTERNAL_STATUS register
-const bma423_aconf    0x40 ; ACC_CONF register
-const bma423_arange   0x41 ; ACC_RANGE register
-const bma423_pctrl    0x7D ; PWR_CTRL register
-const bma423_pconf    0x7C ; PWR_CONF register
-const bma423_2g       0x00 ; For ACC_RANGE, +-2g
-const bma423_4g       0x01 ; For ACC_RANGE, +-4g
-const bma423_8g       0x02 ; For ACC_RANGE, +-8g
-const bma423_16g      0x03 ; For ACC_RANGE, +-16g
-const bma423_25hz     0x06 ; For ACC_CONF, 25 Hz, no averaging, no filter
-const bma423_100hz    0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
-const bma423_enable   0x04 ; For PWR_CTRL, enable data acquisition.
-const bma423_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
-const bma423_sdly       50 ; Startup delay in RCK periods.
+const bma_addr     0x18 ; I2C address
+const bma_id       0x00 ; Identifier register
+const bma_x        0x12 ; ACC_X register, two bytes
+const bma_y        0x14 ; ACC_Y register, two bytes
+const bma_z        0x16 ; ACC_Z register, two bytes
+const bma_time0    0x18 ; SENSOR_TIME_0 register
+const bma_time1    0x19 ; SENSOR_TIME_1 register
+const bma_time2    0x1A ; SENSOR_TIME_2 register
+const bma_temp     0x22 ; TEMPERATURE register
+const bma_status   0x2A ; INTERNAL_STATUS register
+const bma_aconf    0x40 ; ACC_CONF register
+const bma_arange   0x41 ; ACC_RANGE register
+const bma_pctrl    0x7D ; PWR_CTRL register
+const bma_pconf    0x7C ; PWR_CONF register
+const bma_2g       0x00 ; For ACC_RANGE, +-2g
+const bma_4g       0x01 ; For ACC_RANGE, +-4g
+const bma_8g       0x02 ; For ACC_RANGE, +-8g
+const bma_16g      0x03 ; For ACC_RANGE, +-16g
+const bma_25hz     0x06 ; For ACC_CONF, 25 Hz, no averaging, no filter
+const bma_100hz    0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
+const bma_enable   0x04 ; For PWR_CTRL, enable data acquisition.
+const bma_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
+const bma_sdly       50 ; Startup delay in RCK periods.
+
+; ADS7052 Analog to Digital Converter Constants.
+const ads_rd1      0x34 ; Read ADC1
+const ads_rd2      0x35 ; Read ADC2
+const ads_rd3      0x36 ; Read ADC3
+const ads_rd4      0x37 ; Read ADC4
+const ads_cal1     0x0C ; Calibrate ADC1
+const ads_cal2     0x0D ; Calibrate ADC2
+const ads_cal3     0x0E ; Calibrate ADC3
+const ads_cal4     0x0F ; Calibrate ADC4
+const ads_rdly       16 ; ADC Read Delay
+const ads_cdly       22 ; ADC Calib Delay
+
 
 ; Random Number Generator.
 const rand_taps   0xB4 ; Determines which taps to XOR.
@@ -364,7 +377,7 @@ ret
 ; the sensor afterwards. Current consumption will drop to 
 ; about 250 nA after the single measurement.
 
-tmp117_single:
+tmp_single:
 
 ; Push flags and registers.
 
@@ -375,16 +388,16 @@ push C
 push H
 push L
 
-ld A,tmp117_addr
+ld A,tmp_addr
 push A
 pop H
-ld A,tmp117_creg
+ld A,tmp_creg
 push A
 pop L
-ld A,tmp117_oneh
+ld A,tmp_oneh
 push A
 pop C
-ld A,tmp117_onel
+ld A,tmp_onel
 push A
 pop B
 call i2c_wr16
@@ -401,7 +414,7 @@ ret
 ; Configure the temperature sensor for fast temperature and
 ; continuous temperature measurements.
 
-tmp117_fast:
+tmp_fast:
 
 ; Push flags and registers.
 
@@ -412,16 +425,16 @@ push C
 push H
 push L
 
-ld A,tmp117_addr
+ld A,tmp_addr
 push A
 pop H
-ld A,tmp117_creg
+ld A,tmp_creg
 push A
 pop L
-ld A,tmp117_fasth
+ld A,tmp_fasth
 push A
 pop C
-ld A,tmp117_fastl
+ld A,tmp_fastl
 push A
 pop B
 call i2c_wr16
@@ -442,7 +455,7 @@ ret
 ; Beware changing the order of the first two writes and the delay. The 
 ; accelerometer will deliver zeros if we deviate from the correct sequence.
 
-bma423_config:
+bma_config:
 
 push F
 push A
@@ -453,52 +466,52 @@ push L
 
 ; Establish the I2C address in Register H, where it will remain.
 
-ld A,bma423_addr
+ld A,bma_addr
 push A
 pop H
 
 ; Specify the PWR_CONF register with its sub-address in L and 
 ; a value in C. We are configuring for power-save mode.
 
-ld A,bma423_pconf
+ld A,bma_pconf
 push A
 pop L
-ld A,bma423_pwrsv
+ld A,bma_pwrsv
 push A
 pop C
 call i2c_wr8
 
 ; Enable data acquisition by writing to the PWR_CTRL register.
 
-ld A,bma423_pctrl
+ld A,bma_pctrl
 push A
 pop L
-ld A,bma423_enable
+ld A,bma_enable
 push A
 pop C
 call i2c_wr8
 
 ; Wait for the sensor to configure.
 
-ld A,bma423_sdly
+ld A,bma_sdly
 dly A 
 
 ; Configure the accelerometer for 100 Hz update.
 
-ld A,bma423_aconf 
+ld A,bma_aconf 
 push A
 pop L
-ld A,bma423_100hz
+ld A,bma_100hz
 push A
 pop C
 call i2c_wr8
 
 ; Configure for +-16 g range.
 
-ld A,bma423_arange
+ld A,bma_arange
 push A
 pop L
-ld A,bma423_16g
+ld A,bma_16g
 push A
 pop C
 call i2c_wr8
@@ -507,6 +520,36 @@ pop L
 pop H
 pop C
 pop B
+pop A
+pop F
+ret
+
+; ------------------------------------------------------------
+; Configure the ADCs, which consists of getting them each to
+; perform self-calibration. We must call this configuration before
+; any other samples are taken from the ADCs, just after we apply
+; power to the IPT. The self-calibration consists of a twenty-four
+; bit readout, which is effective before any sample is taken, but
+; not effective after the first sample is taken.
+
+ads_calib:
+
+push F
+push A
+
+ld A,ads_cal1
+ld (mmu_spicr),A
+ld A,ads_cdly
+ld A,ads_cal2
+ld (mmu_spicr),A
+ld A,ads_cdly
+ld A,ads_cal3
+ld (mmu_spicr),A
+ld A,ads_cdly
+ld A,ads_cal4
+ld (mmu_spicr),A
+ld A,ads_cdly
+
 pop A
 pop F
 ret
@@ -728,8 +771,19 @@ ld (mmu_irst),A     ; with the bit three mask.
 ld A,(xmit_ch)      ; Load A with telemetry channel number
 ld (mmu_xch),A      ; and write the transmit channel register.
 
+; Read a sample from an ADC and transmit.
+ld A,ads_rd1
+ld (mmu_spicr),A
+ld A,ads_rdly
+dly A
+ld A,(mmu_spidh)
+ld (mmu_xhb),A
+ld A,(mmu_spidl)
+ld (mmu_xlb),A
+jp int_xmit_rdy
+
 ; Read a byte from the EEPROM
-ld A,m24c16_addr
+ld A,nvm_addr
 push A
 pop H
 ld A,0x00
@@ -745,10 +799,10 @@ ld (mmu_xlb),A
 jp int_xmit_rdy
 
 ; Read out temperature sensor.
-ld A,tmp117_addr
+ld A,tmp_addr
 push A
 pop H
-ld A,tmp117_treg
+ld A,tmp_treg
 push A
 pop L
 call i2c_rd16
@@ -762,10 +816,10 @@ ld (mmu_xlb),A
 jp int_xmit_rdy
 
 ; Read out the timer on the accelerometer.
-ld A,bma423_addr
+ld A,bma_addr
 push A
 pop H
-ld A,bma423_time0
+ld A,bma_time0
 push A
 pop L
 call i2c_rd16
@@ -1320,7 +1374,7 @@ ld A,(mmu_imsk)      ; Enable interrupt timer four
 or A,bit3_mask       ; with bit three of interrupt
 ld (mmu_imsk),A      ; mask.
 call annc_ack        ; Acknowledge xon.
-call tmp117_fast     ; Wake up the temperature sensor.
+call tmp_fast     ; Wake up the temperature sensor.
 check_xon_end:
 
 ; Stop data transmission.
@@ -1336,7 +1390,7 @@ ld A,(mmu_imsk)      ; Mask timer interrupt
 and A,bit3_clr       ; with bit three of
 ld (mmu_imsk),A      ; interrupt mask.
 call annc_ack        ; Acknowledge xoff.
-call tmp117_single   ; Shut down the temperature sensor.
+call tmp_single   ; Shut down the temperature sensor.
 check_xoff_end:
 
 ; Battery voltage measurement request instruction. This instruction
@@ -1592,18 +1646,9 @@ ld A,ret_code      ; Put a return opcode at first byte
 
 ; Calibrate the transmit clock and initialize the sensors.
 call calibrate_tck
-;call bma423_config
-call tmp117_single
-ld A,m24c16_addr
-push A
-pop H
-ld A,0x00
-push A
-pop L
-ld A,0xA5
-push A
-pop C
-call i2c_wr8
+call bma_config
+call tmp_single
+call ads_calib
 
 ; Enable interrupts.
 
