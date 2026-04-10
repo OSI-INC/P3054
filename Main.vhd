@@ -21,6 +21,8 @@
 -- register turns on and off DC coupling and impedance measurement switch. The ADC
 -- readout runs off FCK with SCK at 5 MHz.
 
+-- V1.5 [10-APR-26] Add readback of amplifier configuration register.
+
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -73,7 +75,7 @@ entity main is
 	constant mmu_irqb  : integer := 16#00#; -- Interrupt Request Bits (Read)
 	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Read/Write)
 	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write)
-	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Write)
+	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Read/Write)
 	constant mmu_stc   : integer := 16#04#; -- Stimulus Current (Write)
 	constant mmu_rst   : integer := 16#05#; -- System Reset (Write)
 	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write)
@@ -386,6 +388,9 @@ begin
 					case bottom_bits is
 						when mmu_irqb => cpu_data_in <= int_bits;
 						when mmu_imsk => cpu_data_in <= int_mask;
+						when mmu_acfg =>
+							cpu_data_in(0) <= DC;
+							cpu_data_in(1) <= MSR;
 						when mmu_dfr => cpu_data_in(3 downto 0) <= df_reg;
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready Flag

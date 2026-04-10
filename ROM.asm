@@ -47,7 +47,7 @@ const mmu_i2cA1 0x0419 ; i2c SDA=A SCL=1 (Write)
 const mmu_i2cZ0 0x041A ; i2c SDA=Z SCL=0 (Write)
 const mmu_i2cZ1 0x041B ; i2c SDA=Z SCL=1 (Write) 
 const mmu_i2cMR 0x041C ; i2c Most Recent Eight Bits (Read)
-const mmu_spicr 0x041D ; SPI Control Register (Write)
+const mmu_adc 0x041D ; SPI Control Register (Write)
 const mmu_spidh 0x041E ; SPI Data MSB (Read)
 const mmu_spidl 0x041F ; SPI Data LSB (Read)
 
@@ -77,11 +77,18 @@ const bit0_mask  0x01 ; Bit Zero Mask
 const bit1_mask  0x02 ; Bit One Mask
 const bit2_mask  0x04 ; Bit Two Mask
 const bit3_mask  0x08 ; Bit Three Mask
+const bit4_mask  0x10 ; Bit Four Mask
+const bit5_mask  0x20 ; Bit Five Mask
+const bit6_mask  0x40 ; Bit Six Mask
 const bit7_mask  0x80 ; Bit Seven Mask
 const bit0_clr   0xFE ; Bit Zero Clear
 const bit1_clr   0xFD ; Bit One Clear
 const bit2_clr   0xFB ; Bit Two Clear
 const bit3_clr   0xF7 ; Bit Three Clear
+const bit4_clr   0xEF ; Bit Four Clear
+const bit5_clr   0xDF ; Bit Five Clear
+const bit6_clr   0xBF ; Bit Six Clear
+const bit7_clr   0x7F ; Bit Seven Clear
 
 ; Timing Constants.
 const min_tcf       72  ; Minimum TCK periods per half RCK period
@@ -210,10 +217,6 @@ const ads_cal3     0x0E ; Calibrate ADC3
 const ads_cal4     0x0F ; Calibrate ADC4
 const ads_rdly       16 ; ADC Read Delay
 const ads_cdly       22 ; ADC Calib Delay
-
-; Amplifier Configuration
-const dc_mask      0x01 ; DC Amplifier
-const msr_mask     0x02 ; Measure Electrode Impedance
 
 ; Random Number Generator.
 const rand_taps   0xB4 ; Determines which taps to XOR.
@@ -541,16 +544,16 @@ push F
 push A
 
 ld A,ads_cal1
-ld (mmu_spicr),A
+ld (mmu_adc),A
 ld A,ads_cdly
 ld A,ads_cal2
-ld (mmu_spicr),A
+ld (mmu_adc),A
 ld A,ads_cdly
 ld A,ads_cal3
-ld (mmu_spicr),A
+ld (mmu_adc),A
 ld A,ads_cdly
 ld A,ads_cal4
-ld (mmu_spicr),A
+ld (mmu_adc),A
 ld A,ads_cdly
 
 pop A
@@ -645,6 +648,15 @@ jp nc,int_sii_do    ; If >=0, start a delay or a pulse.
 
 ld A,0              ; If <0, 
 ld (mmu_stc),A      ; turn off the stimulus current.
+
+; Unassert MSR.
+push A
+ld A,(mmu_acfg)
+and A,bit1_clr
+ld (mmu_acfg),A
+pop A
+
+
 ld (Srun),A         ; Clear the Srun,
 ld (Spulse),A       ; Spulse,
 ld (Sdelay),A       ; and Sdelay flags.
@@ -682,6 +694,14 @@ ld (Sdelay),A       ; delay flag.
 ld A,0              ; Clear the
 ld (Spulse),A       ; pulse flag.
 ld (mmu_stc),A      ; Turn off stimulu
+
+; Unassert MSR.
+push A
+ld A,(mmu_acfg)
+and A,bit1_clr
+ld (mmu_acfg),A
+pop A
+
 ld A,(mmu_imsk)     ; Unmask
 or A,bit1_mask      ; Timer Two
 ld (mmu_imsk),A     ; interrupt.
@@ -695,7 +715,15 @@ ld (Spulse),A       ; pulse flag.
 ld A,0              ; Clear the delay
 ld (Sdelay),A       ; flag.
 ld A,(Scurrent)     ; Load stimulus current and
-ld (mmu_stc),A      ; turn on the stimulus.
+;ld (mmu_stc),A      ; turn on the stimulus.
+
+; Assert MSR.
+push A
+ld A,(mmu_acfg)
+or A,bit1_mask
+ld (mmu_acfg),A
+pop A
+
 ld A,(Spulse1)      ; Set interrupt timer 
 ld (mmu_i2ph),A     ; two period to the
 ld A,(Spulse0)      ; pulse
@@ -730,7 +758,15 @@ jp z,int_sdp_pulse  ; otherwise end pulse.
 
 int_sdp_delay:
 ld A,(Scurrent)     ; Turn on the 
-ld (mmu_stc),A      ; stimulus current.
+;ld (mmu_stc),A      ; stimulus current.
+
+; Assert MSR.
+push A
+ld A,(mmu_acfg)
+or A,bit1_mask
+ld (mmu_acfg),A
+pop A
+
 ld A,(Spulse1)      ; Load timer two
 ld (mmu_i2ph),A     ; with the
 ld A,(Spulse0)      ; pulse 
@@ -744,6 +780,14 @@ jp int_sdp_rst
 int_sdp_pulse:
 ld A,0              ; Stop the
 ld (mmu_stc),A      ; stimulus pulse.
+
+; Unassert MSR.
+push A
+ld A,(mmu_acfg)
+and A,bit1_clr
+ld (mmu_acfg),A
+pop A
+
 ld (Spulse),A       ; Clear pulse flag.
 ld (Sdelay),A       ; And the delay flag.
 ld (mmu_i2ph),A     ; Disable the timer two
@@ -778,19 +822,30 @@ ld (mmu_xch),A      ; and write the transmit channel register.
 sub A,9
 jp z,int_rd_tmp
 
-; Read a sample from an ADC and transmit. We want DC coupling for
-; channel numbers 1-4 and AC for 5-8.
+; Read a sample from an ADC and transmit. We want AC coupling for
+; channel numbers 1-4 and DC for 5-8. We begin by decrementing 
+; the channel number so we get 0-3 for AC and 4-7 for DC. We extract
+; bit2, rotate to bit0, or with the amplifier configuration register
+; and write back to the same register. This preserves the other bits
+; in the register. We load the channel number again, decrement, 
+; extract bits 0 and 1 for X1-X4, then set the two decrement bits 
+; and the initiate bits in the ADC control register and write.
 ld A,(xmit_ch)
 dec A
-and A,0x04
+and A,bit2_mask
 srl A
 srl A
+push A
+pop B
+ld A,(mmu_acfg)
+and A,bit0_clr
+or A,B
 ld (mmu_acfg),A
 ld A,(xmit_ch)
 dec A
 and A,0x03
 or A,0x34
-ld (mmu_spicr),A
+ld (mmu_adc),A
 ld A,ads_rdly
 dly A
 ld A,(mmu_spidh)
@@ -1326,6 +1381,14 @@ jp nz,check_stop_stim_end
 ld A,0                ; Clear
 ld (Srun),A           ; run flag
 ld (mmu_stc),A        ; stop stimulus
+
+; Unassert MSR.
+push A
+ld A,(mmu_acfg)
+and A,bit1_clr
+ld (mmu_acfg),A
+pop A
+
 ld (mmu_i1ph),A       ; and disable the
 ld (mmu_i1pl),A       ; timer one interrupt.
 ld A,(mmu_imsk)       ; Mask
@@ -1641,6 +1704,14 @@ ld (shdncnt0),A    ; ready to decrement.
 
 ld A,0             ; Make sure the stimulus
 ld (mmu_stc),A     ; current is zero.
+
+; Unassert MSR.
+push A
+ld A,(mmu_acfg)
+and A,bit1_clr
+ld (mmu_acfg),A
+pop A
+
 ld (mmu_dfr),A     ; Set the diagnostic flags to zero.
 ld (mmu_i1ph),A    ; Set all the 
 ld (mmu_i1pl),A    ; interrupt timer
