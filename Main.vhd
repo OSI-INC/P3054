@@ -68,7 +68,7 @@ entity main is
 	constant mmu_irqb  : integer := 16#00#; -- Interrupt Request Bits (Read)
 	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Read/Write)
 	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write)
-	constant mmu_dact  : integer := 16#03#; -- Device Active (Write)
+	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Write)
 	constant mmu_stc   : integer := 16#04#; -- Stimulus Current (Write)
 	constant mmu_rst   : integer := 16#05#; -- System Reset (Write)
 	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write)
@@ -431,6 +431,8 @@ begin
 			frequency_low <= default_frequency_low;
 			SDA <= 'Z';
 			SCL <= '1';
+			MSR <= '0';
+			DC <= '0';
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
 		-- and transmit activity. Some signals we assert only for one CK period, and 
@@ -444,6 +446,9 @@ begin
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
 					case bottom_bits is
+						when mmu_acfg =>
+							DC <= cpu_data_out(0);
+							MSR <= cpu_data_out(1);
 						when mmu_xlb  => xmit_bits(7 downto 0) <= cpu_data_out;
 						when mmu_xhb  => xmit_bits(15 downto 8) <= cpu_data_out;
 						when mmu_xch  => tx_channel <= to_integer(unsigned(cpu_data_out));
@@ -453,7 +458,6 @@ begin
 						when mmu_rfc  => frequency_low <= to_integer(unsigned(cpu_data_out));
 						when mmu_imsk => int_mask <= cpu_data_out;
 						when mmu_irst => int_rst <= cpu_data_out;
-						when mmu_dact => DACTIVE <= (cpu_data_out(0) = '1');
 						when mmu_stc  => stimulus_current <= to_integer(unsigned(cpu_data_out));
 						when mmu_rst  => SWRST <= (cpu_data_out(0) = '1');
 						when mmu_ccr  => 
@@ -1412,9 +1416,6 @@ begin
 		-- Command Processor Active is true whenever the state is not idle.
 		CPA <= (state /= idle_s);
 	end process;
-
-	MSR <= '0';
-	DC <= '1';
 	
 -- Test Point appears on P1-7.
 --	TP <= CPUSIG(0);

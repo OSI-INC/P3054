@@ -21,7 +21,7 @@ const prog_top  0x0FFF ; Top of User Program Memory
 const mmu_irqb  0x0400 ; Interrupt Request Bits (Read)
 const mmu_imsk  0x0401 ; Interrupt Mask Bits (Read/Write)
 const mmu_irst  0x0402 ; Interrupt Reset Bits (Write)
-const mmu_dva   0x0403 ; Device Active (Write)
+const mmu_acfg  0x0403 ; Amplifier Configuration (Write)
 const mmu_stc   0x0404 ; Stimulus Current (Write)
 const mmu_rst   0x0405 ; System Reset (Write)
 const mmu_xhb   0x0406 ; Transmit HI Byte (Write)
@@ -211,6 +211,9 @@ const ads_cal4     0x0F ; Calibrate ADC4
 const ads_rdly       16 ; ADC Read Delay
 const ads_cdly       22 ; ADC Calib Delay
 
+; Amplifier Configuration
+const dc_mask      0x01 ; DC Amplifier
+const msr_mask     0x02 ; Measure Electrode Impedance
 
 ; Random Number Generator.
 const rand_taps   0xB4 ; Determines which taps to XOR.
@@ -771,8 +774,22 @@ ld (mmu_irst),A     ; with the bit three mask.
 ld A,(xmit_ch)      ; Load A with telemetry channel number
 ld (mmu_xch),A      ; and write the transmit channel register.
 
-; Read a sample from an ADC and transmit.
-ld A,ads_rd1
+; Check the sample number. If it's 9, transmit temperature.
+sub A,9
+jp z,int_rd_tmp
+
+; Read a sample from an ADC and transmit. We want DC coupling for
+; channel numbers 1-4 and AC for 5-8.
+ld A,(xmit_ch)
+dec A
+and A,0x04
+srl A
+srl A
+ld (mmu_acfg),A
+ld A,(xmit_ch)
+dec A
+and A,0x03
+or A,0x34
 ld (mmu_spicr),A
 ld A,ads_rdly
 dly A
@@ -799,6 +816,7 @@ ld (mmu_xlb),A
 jp int_xmit_rdy
 
 ; Read out temperature sensor.
+int_rd_tmp:
 ld A,tmp_addr
 push A
 pop H
@@ -1537,13 +1555,11 @@ check_ver_end:
 
 jp cmd_done     
 
-; Now that we are done with command processing, we turn
-; on device power. It's up to the main loop to turn
-; the device off. We reset the command processor too.
+; Now that we are done with command processing, we reset the command 
+; processor.
 
 cmd_done:
 ld A,0x01
-ld (mmu_dva),A
 ld (mmu_cpr),A
 
 ; Restore most registers, but not IY, which contains the user program pointer.
@@ -1727,8 +1743,6 @@ jp nz,main_loop
 ; loop until the logic turns off.
 
 main_shdn:
-ld A,0
-ld (mmu_dva),A
 jp main_loop
 
 ; ---------------------------------------------------------------
