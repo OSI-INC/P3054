@@ -1435,11 +1435,11 @@ begin
 -- Test Point appears on P1-7.
 --	TP <= CPUSIG(0);
 --	TP <= SDO;
-	TP <= df_reg(0);
+--	TP <= df_reg(0);
 --	TP <= adc_data(13);
 --	TP <= to_std_logic(INTZ1);
 --	TP <= CPUSIG(1);
---	TP <= df_reg(0);	
+	TP <= LED;	
 --	TP <= to_std_logic(INTZ2);
 --	TP <= to_std_logic(CPUISRV);
 --	TP <= to_std_logic(RCKHI);

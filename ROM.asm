@@ -637,7 +637,6 @@ ld A,(Sint1)        ; Set the stimulus interval delay to
 ld (mmu_i1ph),A     ; the value specified by the most 
 ld A,(Sint0)        ; recent command, or adapt to value written
 ld (mmu_i1pl),A     ; by user program to interval length locations.
-
 ld A,(Slen0)        ; Load LO byte of stimulus length counter.
 sub A,1             ; decrement
 ld (Slen0),A        ; save,
@@ -648,15 +647,6 @@ jp nc,int_sii_do    ; If >=0, start a delay or a pulse.
 
 ld A,0              ; If <0, 
 ld (mmu_stc),A      ; turn off the stimulus current.
-
-; Unassert MSR.
-push A
-ld A,(mmu_acfg)
-and A,bit1_clr
-ld (mmu_acfg),A
-pop A
-
-
 ld (Srun),A         ; Clear the Srun,
 ld (Spulse),A       ; Spulse,
 ld (Sdelay),A       ; and Sdelay flags.
@@ -694,14 +684,6 @@ ld (Sdelay),A       ; delay flag.
 ld A,0              ; Clear the
 ld (Spulse),A       ; pulse flag.
 ld (mmu_stc),A      ; Turn off stimulu
-
-; Unassert MSR.
-push A
-ld A,(mmu_acfg)
-and A,bit1_clr
-ld (mmu_acfg),A
-pop A
-
 ld A,(mmu_imsk)     ; Unmask
 or A,bit1_mask      ; Timer Two
 ld (mmu_imsk),A     ; interrupt.
@@ -715,15 +697,7 @@ ld (Spulse),A       ; pulse flag.
 ld A,0              ; Clear the delay
 ld (Sdelay),A       ; flag.
 ld A,(Scurrent)     ; Load stimulus current and
-;ld (mmu_stc),A      ; turn on the stimulus.
-
-; Assert MSR.
-push A
-ld A,(mmu_acfg)
-or A,bit1_mask
-ld (mmu_acfg),A
-pop A
-
+ld (mmu_stc),A      ; turn on the stimulus.
 ld A,(Spulse1)      ; Set interrupt timer 
 ld (mmu_i2ph),A     ; two period to the
 ld A,(Spulse0)      ; pulse
@@ -751,22 +725,13 @@ int_sdp:
 ld A,(mmu_irqb)     ; Read the interrupt request bits
 and A,bit1_mask     ; and test bit one,
 jp z,int_sdp_done   ; skip if not delay and pulse interrupt.
-
 ld A,(Sdelay)       ; Check delay flag
 add A,0             ; and if set, end delay and start pulse
 jp z,int_sdp_pulse  ; otherwise end pulse.
 
 int_sdp_delay:
 ld A,(Scurrent)     ; Turn on the 
-;ld (mmu_stc),A      ; stimulus current.
-
-; Assert MSR.
-push A
-ld A,(mmu_acfg)
-or A,bit1_mask
-ld (mmu_acfg),A
-pop A
-
+ld (mmu_stc),A      ; stimulus current.
 ld A,(Spulse1)      ; Load timer two
 ld (mmu_i2ph),A     ; with the
 ld A,(Spulse0)      ; pulse 
@@ -780,14 +745,6 @@ jp int_sdp_rst
 int_sdp_pulse:
 ld A,0              ; Stop the
 ld (mmu_stc),A      ; stimulus pulse.
-
-; Unassert MSR.
-push A
-ld A,(mmu_acfg)
-and A,bit1_clr
-ld (mmu_acfg),A
-pop A
-
 ld (Spulse),A       ; Clear pulse flag.
 ld (Sdelay),A       ; And the delay flag.
 ld (mmu_i2ph),A     ; Disable the timer two
@@ -1381,14 +1338,6 @@ jp nz,check_stop_stim_end
 ld A,0                ; Clear
 ld (Srun),A           ; run flag
 ld (mmu_stc),A        ; stop stimulus
-
-; Unassert MSR.
-push A
-ld A,(mmu_acfg)
-and A,bit1_clr
-ld (mmu_acfg),A
-pop A
-
 ld (mmu_i1ph),A       ; and disable the
 ld (mmu_i1pl),A       ; timer one interrupt.
 ld A,(mmu_imsk)       ; Mask
@@ -1704,14 +1653,7 @@ ld (shdncnt0),A    ; ready to decrement.
 
 ld A,0             ; Make sure the stimulus
 ld (mmu_stc),A     ; current is zero.
-
-; Unassert MSR.
-push A
-ld A,(mmu_acfg)
-and A,bit1_clr
-ld (mmu_acfg),A
-pop A
-
+ld (mmu_acfg),A    ; Unassert MSR and select AC coupling.
 ld (mmu_dfr),A     ; Set the diagnostic flags to zero.
 ld (mmu_i1ph),A    ; Set all the 
 ld (mmu_i1pl),A    ; interrupt timer
