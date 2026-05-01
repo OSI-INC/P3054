@@ -21,7 +21,11 @@
 -- register turns on and off DC coupling and impedance measurement switch. The ADC
 -- readout runs off FCK with SCK at 5 MHz.
 
--- V1.5 [10-APR-26] Add readback of amplifier configuration register.
+-- V1.5 [10-APR-26] Add readback of amplifier configuration register. Eliminate 
+-- support for random stimuli in software. Remove multiplier from software. Now
+-- have I2C.asm include file. Transmit signal can be directed to any input, AC
+-- or DC, temperature sensor, accelerometer, EEPROM, or synchronizing signal.
+-- Simplify LED controller.
 
 
 library ieee;  
@@ -1022,51 +1026,18 @@ begin
 		end if;
 	end process;
 
--- The Stimulus Controller takes the stimulus current value and modulates
--- the LED output from 0% to 100% for values 0 to 15.
-	Stimulus_Controller: process (RESET, RCK) is 
-	variable c : integer range 0 to 15;
+-- The Indicator Controller takes the stimulus current and sets the value of LED to
+-- turn on or off the lamp.
+	Lamp_Controller: process (RESET, RCK) is 
 	begin
 		if RESET = '1' then
 			LED <= '0';
 		elsif rising_edge(RCK) then
-			case stimulus_current is
-				when 0 => LED <= '0';
-				when 1 => LED <= to_std_logic((c=0) or (c=8));
-				when 2 => LED <= to_std_logic((c=0) or (c=5) or (c=10));
-				when 3 => LED <= to_std_logic((c=0) or (c=4) or (c=8) or (c=12));
-				when 4 => LED <= to_std_logic((c=0) or (c=3) or (c=6) or (c=10) or (c=13));
-				when 5 => LED <= to_std_logic(
-					(c=0) or (c=3) or (c=6) or (c=9) or (c=12) or (c=14));
-				when 6 => LED <= to_std_logic(
-					(c=0) or (c=2) or (c=4) or (c=6) or (c=8) or (c=10) or (c=12));
-				when 7 => LED <= to_std_logic(
-					(c=0) or (c=2) or (c=4) or (c=6) or (c=8) or (c=10) or (c=12) or (c=14));
-				when 8 => LED <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=5) or (c=6) or (c=7) or (c=10) or (c=11)
-					or (c=12));
-				when 9 => LED <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=5) or (c=6) or (c=7) or (c=10) or (c=11)
-					or (c=12) or (c=14));
-				when 10 => LED <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
-					or (c=10) or (c=12) or (c=13));
-				when 11 => LED <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
-					or (c=10) or (c=12) or (c=13) or (c=14));			
-				when 12 => LED <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=4) or (c=5) or (c=6) or (c=8) or (c=9)
-					or (c=10) or (c=12) or (c=13) or (c=14) or (c=15));	
-				when 13 => LED <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=3) or (c=4) or (c=5) or (c=6) or (c=8)
-					or (c=9) or (c=10) or (c=11) or (c=12) or (c=13) or (c=14));	
-				when 14 => LED <= to_std_logic(
-					(c=0) or (c=1) or (c=2) or (c=3) or (c=4) or (c=5) or (c=6) or (c=7)
-					or (c=8) or (c=9) or (c=10) or (c=11) or (c=12) or (c=13) or (c=14));	
-				when 15 => LED <= '1';
-				when others => LED <= '0';
-			end case;
-			c := c + 1;
+			if stimulus_current > 0 then
+				LED <= '1';
+			else 
+				LED <= '0';
+			end if;
 		end if;
 	end process;
 	
@@ -1433,22 +1404,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
---	TP <= CPUSIG(0);
---	TP <= SDO;
 	TP <= df_reg(0);
---	TP <= to_std_logic(TXWP);
---	TP <= adc_data(13);
---	TP <= to_std_logic(INTZ1);
---	TP <= CPUSIG(1);
---	TP <= to_std_logic(INTZ2);
---	TP <= to_std_logic(CPUISRV);
---	TP <= to_std_logic(RCKHI);
---	TP <= to_std_logic(FHI);
---	TP <= CPUSIG(3);
---	TP <= df_reg(3);
---	TP <= to_std_logic(CPUIRQ);
---	TP <= to_std_logic(CPUISRV or (SDA = '0'));
---	TP <= CK;
---	TP <= to_std_logic(RCKLO);
---	TP <= RCK;
+
 end behavior;
