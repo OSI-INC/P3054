@@ -21,7 +21,7 @@
 -- register turns on and off DC coupling and impedance measurement switch. The ADC
 -- readout runs off FCK with SCK at 5 MHz.
 
--- V1.5 [10-APR-26] Add readback of amplifier configuration register. Eliminate 
+-- V1.5 [01-MAY-26] Add readback of amplifier configuration register. Eliminate 
 -- support for random stimuli in software. Remove multiplier from software. Now
 -- have I2C.asm include file. Transmit signal can be directed to any input, AC
 -- or DC, temperature sensor, accelerometer, EEPROM, or synchronizing signal.

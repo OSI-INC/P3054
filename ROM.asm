@@ -1289,7 +1289,6 @@ ld A,(mmu_imsk)      ; Enable interrupt timer four
 or A,bit3_mask       ; with bit three of interrupt
 ld (mmu_imsk),A      ; mask.
 call annc_ack        ; Acknowledge xon.
-call tmp_fast     ; Wake up the temperature sensor.
 check_xon_end:
 
 ; Stop data transmission.
@@ -1305,7 +1304,6 @@ ld A,(mmu_imsk)      ; Mask timer interrupt
 and A,bit3_clr       ; with bit three of
 ld (mmu_imsk),A      ; interrupt mask.
 call annc_ack        ; Acknowledge xoff.
-call tmp_single   ; Shut down the temperature sensor.
 check_xoff_end:
 
 ; Battery voltage measurement request instruction. This instruction
