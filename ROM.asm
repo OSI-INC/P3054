@@ -235,124 +235,12 @@ start:
 jp main
 jp interrupt
 
+; --------------------------------------------------------------
+; Include files. These must go after the jump locations for
+; the main program and interrupts.
+
 include "I2C.asm"
-include "M8X8.asm"
 
-; ------------------------------------------------------------
-; The random number generator updates rand_0 and rand_1 with a 
-; sixteen-bit linear feedback shift register.
-
-rand:
-
-push F
-push A
-
-ld A,(rand_1)     ; Rotate rand_1 to the right,
-srl A             ; filling top bit with zero,
-ld (rand_1),A     ; and placing bottom bit in carry.
-ld A,(rand_0)     ; Rotate rand_0 to the right,
-rr A              ; filling top bit with carry,
-ld (rand_0),A     ; and placing bottom bit in carry.
-
-ld A,(rand_1)     ; Load A with rand_1 again.
-jp nc,rand_tz     ; If carry is set, perform the XOR
-xor A,rand_taps   ; operation on tap bits and
-ld (rand_1),A     ; save to memory.
-rand_tz:
-
-pop A
-pop F
-ret
-
-; ------------------------------------------------------------
-; Generate a number that we can use to delay a pulse within a
-; stimulus interval. The minimum delay is zero and the maximum
-; is the interval length minus the pulse length. We write the 
-; delay bytes to Sdly0 and Sdly1.
-;
-
-rand_dly:
-
-push F
-push A
-push B
-push C
-push D
-push E
-push H
-push L
-
-; Copy the stimulus interval length into the scratch pad
-; and subtract the pulse length. The result is our maximum 
-; delay for randomized pulses. If this value is negative, 
-; set to zero.
-
-ld A,(Spulse0)       ; Load pulse length byte
-push A               ; zero into B
-pop B                ; and interval length
-ld A,(Sint0)         ; byte zero into A.
-sub A,B              ; Subtract to get
-ld (Smaxdly0),A      ; max delay byte zero.
-ld A,(Spulse1)       ; Load pulse length
-push A               ; byte one into 
-pop B                ; B and
-ld A,(Sint1)         ; interval length byte one
-sbc A,B              ; into A and subtract with
-ld (Smaxdly1),A      ; carry to get max delay byte one.
-jp nc,rand_delay_ds  ; If not negative, move on.
-ld A,0               ; Otherwise
-ld (Sdly1),A         ; set delay to 
-ld (Sdly0),A         ; zero.
-jp rand_delay_done
-rand_delay_ds:
-
-; Get a random number and place it in D. This is one of our
-; product terms. The other is the maximum delay for randomized
-; pulses, which is currently in the scratch pad.
-
-call rand           ; Update the random number.
-ld A,(rand_0)       ; Load the random number
-push A              ; and move to B
-pop B               ; for multiplication.
-push A              ; Also store in D for 
-pop D               ; later.
-
-; Multiply the maximum delay by the random number and store the
-; top two bytes of the twenty-four bit product in memory.
-
-ld A,(Smaxdly0)     ; Load LO byte zero of max delay
-push A              ; and place in C for
-pop C               ; multiplication.
-call multiply       ; Let BC := B * C.
-push B              ; Store HI byte in E for later.
-pop E               ; Won't be using LO byte.
-push D              ; Bring back our random
-pop B               ; number.
-ld A,(Smaxdly1)     ; Put byte one of max delay
-push A              ; in C
-pop C               ; for multiplication
-call multiply       ; Let BC := B * C.
-push B              ; The HI byte is our random
-pop A               ; delay byte one, so store
-ld (Sdly1),A        ; now in timer byte one.
-push C              ; Move LO byte from     
-pop B               ; C to B. 
-push E              ; Move HI byte of first product
-pop A               ; from E to A.
-add A,B             ; Add bytes, never generates carry.
-ld (Sdly0),A        ; Put delay byte zero in timer.
-
-rand_delay_done:
-
-pop L
-pop H
-pop E
-pop D
-pop C
-pop B
-pop A 
-pop F
-ret                
 
 ; ------------------------------------------------------------
 ; Calibrate the transmit clock frequency. We take the CPU out
@@ -643,7 +531,7 @@ ld (Slen0),A        ; save,
 ld A,(Slen1)        ; Load HI byte,
 sbc A,0             ; apply carry bit
 ld (Slen1),A        ; and save.
-jp nc,int_sii_do    ; If >=0, start a delay or a pulse.
+jp nc,int_sii_done  ; If >=0, start a delay or a pulse.
 
 ld A,0              ; If <0, 
 ld (mmu_stc),A      ; turn off the stimulus current.
@@ -658,37 +546,6 @@ ld (mmu_imsk),A     ; interrupt.
 ld A,op_stop        ; Transmit a stimulus stop
 ld (Sack_key),A     ; acknowledgement
 call annc_ack       ; to mark stimulus end.
-jp int_sii_rst
-
-int_sii_do:
-ld A,(Srand)        ; Check the random flag
-add A,0             ; and if zero, start pulse
-jp z,int_sii_p      ; otherwise start delay.
-
-int_sii_r:
-call rand_dly       ; Generate random delay.
-ld A,(Sdly0)        ; If the delay
-add A,0             ; is zero
-jp nz,int_sii_rd    ; we skip the
-ld A,(Sdly1)        ; delay and
-add A,0             ; start our pulse
-jp z,int_sii_p      ; immediately.
-
-int_sii_rd:
-ld A,(Sdly0)        ; Copy random
-ld (mmu_i2pl),A     ; delay to the
-ld A,(Sdly1)        ; Timer Two
-ld (mmu_i2ph),A     ; period.
-ld A,1              ; Set the
-ld (Sdelay),A       ; delay flag.
-ld A,0              ; Clear the
-ld (Spulse),A       ; pulse flag.
-ld (mmu_stc),A      ; Turn off stimulu
-ld A,(mmu_imsk)     ; Unmask
-or A,bit1_mask      ; Timer Two
-ld (mmu_imsk),A     ; interrupt.
-ld A,bit1_mask      ; Reset
-ld (mmu_irst),A     ; Timer Two.
 jp int_sii_rst
 
 int_sii_p:
@@ -771,22 +628,62 @@ jp z,int_xmit_done  ; skip transmit if not set.
 
 ld A,bit3_mask      ; Reset this interrupt
 ld (mmu_irst),A     ; with the bit three mask.
-
 ld A,(xmit_ch)      ; Load A with telemetry channel number
 ld (mmu_xch),A      ; and write the transmit channel register.
 
-; Check the sample number. If it's 9, transmit temperature.
-sub A,9
-jp z,int_rd_tmp
+; We are assigning transmit channel numbers to ADC inputs,
+; temperature sensor, EEPROM, and accelerometer in this
+; prototype code, so we can read any of them one at a time.
+; The selection will be based upon the lower nibble of the
+; channel number, which has range 1-14. Channels 1-8 are for
+; the inputs AC/DC. Channel 9 for temperature. Channel 10 for
+; EEPROM, 11 for accelerometer, and 12-14 for synch.
 
-; Read a sample from an ADC and transmit. We want AC coupling for
-; channel numbers 1-4 and DC for 5-8. We begin by decrementing 
-; the channel number so we get 0-3 for AC and 4-7 for DC. We extract
-; bit2, rotate to bit0, or with the amplifier configuration register
-; and write back to the same register. This preserves the other bits
-; in the register. We load the channel number again, decrement, 
-; extract bits 0 and 1 for X1-X4, then set the two decrement bits 
-; and the initiate bits in the ADC control register and write.
+and A,0x0F
+push A
+pop B
+dec A
+and A,0x08
+jp z,int_xmit_adc
+push B
+pop A
+sub A,9
+jp z,int_xmit_temp
+push B
+pop A
+sub A,10
+jp z,int_xmit_nvm
+push B
+pop A
+sub A,11
+jp z,int_xmit_acc
+jp int_xmit_sync
+
+; Transmit a temperature measurement.
+
+int_xmit_temp:
+ld A,tmp_addr
+push A
+pop H
+ld A,tmp_treg
+push A
+pop L
+call i2c_rd16
+push C
+pop A
+add A,off_16bs   
+ld (mmu_xhb),A
+push B
+pop A
+ld (mmu_xlb),A
+jp int_xmit_rdy
+
+; Read a sample from an ADC and transmit. We apply AC coupling for
+; channel numbers for which the lower nibble is 1-4 and DC coupling
+; for lower nibble 5-8. We read ADCs 1-4 for channels 1-4 and again
+; ADCs 1-4 for channels 5-8.
+
+int_xmit_adc:
 ld A,(xmit_ch)
 dec A
 and A,bit2_mask
@@ -811,7 +708,9 @@ ld A,(mmu_spidl)
 ld (mmu_xlb),A
 jp int_xmit_rdy
 
-; Read a byte from the EEPROM
+; Read a byte from the non-volatile memory.
+
+int_xmit_nvm:
 ld A,nvm_addr
 push A
 pop H
@@ -827,25 +726,9 @@ pop A
 ld (mmu_xlb),A
 jp int_xmit_rdy
 
-; Read out temperature sensor.
-int_rd_tmp:
-ld A,tmp_addr
-push A
-pop H
-ld A,tmp_treg
-push A
-pop L
-call i2c_rd16
-push C
-pop A
-add A,off_16bs   
-ld (mmu_xhb),A
-push B
-pop A
-ld (mmu_xlb),A
-jp int_xmit_rdy
+; Transmit an accelerometer register.
 
-; Read out the timer on the accelerometer.
+int_xmit_acc:
 ld A,bma_addr
 push A
 pop H
@@ -862,13 +745,11 @@ pop A
 ld (mmu_xlb),A
 jp int_xmit_rdy
 
-; If a not Srun, we will transmit synch_nostim. If Srun but not Spulse,
-; we transmit synch_stim. If Srun we transmit synch_stim + 8*Scurrent.
-; Regardless, the lower byte we transmit will be zero.
+; Transmit synchronizing signal.
 
+int_xmit_sync:
 ld A,0              ; Load A with zero
 ld (mmu_xlb),A      ; write to transmit LO register.
-
 ld A,(Srun)         ; Load A with Srun
 add A,0             ; check value
 jp nz,int_xmit_stim ; jump if set.
@@ -893,6 +774,10 @@ sla A               ; three times to
 sla A               ; multiply by eight
 add A,synch_stim    ; then add synch_stim.
 ld (mmu_xhb),A      ; Write to transmit HI register.
+
+; Ready to transmit. The sample bytes and channel number are 
+; loaded in their respective registers. Now all we need to 
+; do is initiate and wait.
 
 int_xmit_rdy:
 
