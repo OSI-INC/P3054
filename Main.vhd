@@ -1435,8 +1435,8 @@ begin
 -- Test Point appears on P1-7.
 --	TP <= CPUSIG(0);
 --	TP <= SDO;
---	TP <= df_reg(0);
-	TP <= to_std_logic(TXWP);
+	TP <= df_reg(0);
+--	TP <= to_std_logic(TXWP);
 --	TP <= adc_data(13);
 --	TP <= to_std_logic(INTZ1);
 --	TP <= CPUSIG(1);
