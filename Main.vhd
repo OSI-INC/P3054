@@ -27,6 +27,9 @@
 -- or DC, temperature sensor, accelerometer, EEPROM, or synchronizing signal.
 -- Simplify LED controller.
 
+-- V1.6 [01-MAY-26] Remove shutdown counter from software. Add main loop counter
+-- to control 0.5-Hz updates of temperature sensor.
+
 
 library ieee;  
 use ieee.std_logic_1164.all;

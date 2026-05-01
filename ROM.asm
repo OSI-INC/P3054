@@ -93,14 +93,16 @@ const bit7_clr   0x7F ; Bit Seven Clear
 ; Timing Constants.
 const min_tcf       72  ; Minimum TCK periods per half RCK period
 const tx_delay      40  ; Wait time for sample transmission, TCK periods
-const sa_delay      30  ; Wait time for sensor access, TCK periods
 const wp_delay     255  ; Warm-up delay for auxiliary messages
 const num_vars      64  ; Number of vars to clear at start
 const initial_tcd   15  ; Max possible value of TCK divisor
 const uprog_tick   163  ; User program interrupt period minus one
 const id_delay      33  ; To pad id delay to 50 TCK periods
 const min_int_p     25  ; Minimum transmit period
-const shdn_rst     250  ; Shutdown counter reset value.
+const shdn_rst     250  ; Shutdown counter reset value
+const ads_rdly      16  ; Clock cycles for ADC readout
+const ads_cdly      22  ; Clock cycles for ADC self-calibration
+const tmp_period     9  ; Main loop times 256 cycles per tmp measurement
 
 ; Stimulus Control Variables
 const Scurrent    0x0000 ; Stimulus Current
@@ -123,14 +125,6 @@ const Smaxdly0    0x000F ; Max Delay, LO
 ; Command Decode Variables
 const ccmdb       0x0016 ; Copy of Command Byte
 
-; Shutdown counter.
-const shdncnt1    0x0019 ; Counter Byte One
-const shdncnt0    0x001A ; Counter Byte Zero
-
-; Random Number Variables
-const rand_1      0x0020 ; Random Number Byte One
-const rand_0      0x0021 ; Random Number Byte Zero
-
 ; User Program Control Variables
 const UPrun       0x0022 ; Running
 const UPinit      0x0023 ; Initialize
@@ -138,6 +132,10 @@ const UPinit      0x0023 ; Initialize
 ; Transmission Control Variables
 const xmit_p      0x0028 ; Transmit Period
 const xmit_ch     0x0029 ; Telemetry Channel Number
+
+; Sensor Control Variables
+const tmp_chb    0x0030 ; Temperature counter, HI
+const tmp_clb    0x0031 ; Temperature counter, LO
 
 ; User Program Constants
 const ret_code      0x0A ; Return from subroutine instruction
@@ -215,8 +213,6 @@ const ads_cal1     0x0C ; Calibrate ADC1
 const ads_cal2     0x0D ; Calibrate ADC2
 const ads_cal3     0x0E ; Calibrate ADC3
 const ads_cal4     0x0F ; Calibrate ADC4
-const ads_rdly       16 ; ADC Read Delay
-const ads_cdly       22 ; ADC Calib Delay
 
 ; Random Number Generator.
 const rand_taps   0xB4 ; Determines which taps to XOR.
@@ -708,7 +704,7 @@ ld A,(mmu_spidl)
 ld (mmu_xlb),A
 jp int_xmit_rdy
 
-; Read a byte from the non-volatile memory.
+; Read two bytes from the non-volatile memory.
 
 int_xmit_nvm:
 ld A,nvm_addr
@@ -780,13 +776,25 @@ ld (mmu_xhb),A      ; Write to transmit HI register.
 ; do is initiate and wait.
 
 int_xmit_rdy:
-
 ld A,tx_txi         ; Load transmit initiate bit
 ld (mmu_xcr),A      ; and write to transmit control register.
 ld A,tx_delay       ; Wait for transmit to
 dly A               ; complete.
-
 int_xmit_done:
+
+; Check the temperature measurement counter. If it is zero,
+; take a temperature measurement and reset the counter.
+
+int_tmp_meas:
+ld A,(tmp_chb)
+sub A,0
+jp nz,int_tmp_done
+ld (tmp_clb),A
+ld A,tmp_period
+ld (tmp_chb),A
+call tmp_single
+int_tmp_done:
+
 
 ; Restore registers.
 
@@ -1186,12 +1194,6 @@ jp nz,cmd_done
 
 cmd_id_matched:
 
-; Reset the shutdown counter.
-
-ld A,shdn_rst      ; Load the extinguish counter with
-ld (shdncnt1),A    ; the maximum sixteen-bit
-ld (shdncnt0),A    ; integer.
-
 ; The start of our command byte decoding loop. 
 
 cmd_loop:
@@ -1524,13 +1526,7 @@ jp nz,main_var_init_loop
 ; Initialize certain variables to values other than zero.
 
 ld A,identifier_lo ; Set the primary channel number to the
-ld (xmit_ch),A     ; LO byte of the device identifier.
-ld (rand_0),A      ; Seed the random number generator
-ld A,identifier_hi ; with the LO and HI bytes of the
-ld (rand_1),A      ; device identifier.
-ld A,shdn_rst      ; Load the extinguish counter with
-ld (shdncnt1),A    ; the reset value,
-ld (shdncnt0),A    ; ready to decrement.
+ld (xmit_ch),A     ; low byte of the device identifier.
 
 ; Configure control space registers.
 
@@ -1560,6 +1556,10 @@ ld A,ret_code      ; Put a return opcode at first byte
 call calibrate_tck
 call bma_config
 call tmp_single
+ld A,tmp_period
+ld (tmp_chb),A
+ld A,0
+ld (tmp_clb),A
 call ads_calib
 
 ; Enable interrupts.
@@ -1578,67 +1578,22 @@ jp z,main_nocmd     ; Jump if it's clear,
 call cmd_execute    ; execute command if it's set.
 main_nocmd:
 
-; If the stimulus flag is set, reset the shutdown counter and call main loop
-; again. 
+; Decrement the temperature period counter. When it reaches
+; zero, stop decrementing. Our interrupt routine will detect
+; the zero, measure temperature, and reset the counter.
 
-main_check_srun:
-ld A,(Srun)
-add A,0
-jp z,main_shdn_dec
-ld A,shdn_rst
-ld (shdncnt0),A
-ld (shdncnt1),A
-jp main_loop
-
-; Decrement the shutdown counter. When negative, we will switch off. The shutdown
-; counter will be decremented by the one in every main loop. The cmd_execute 
-; routine resets the counter whenever it receives a command directed at this device.
-
-main_shdn_dec:
-ld A,(shdncnt0)
+ld A,(tmp_chb)
+sub A,0
+jp z,main_notmp
+ld A,(tmp_clb)
 sub A,1
-ld (shdncnt0),A
-ld A,(shdncnt1)
+ld (tmp_clb),A
+ld A,(tmp_chb)
 sbc A,0
-ld (shdncnt1),A
-jp nc,main_check_flags
+ld (tmp_chb),A
+main_notmp:
 
-; We are going to shut down. We announce the shutdown once, when the shutdown counter
-; reaches zero. We will keep running the main loop, but because the shutdown counter 
-; will start counting down from 0xFFF, it will not reach zero again before the device
-; powers off.
 
-main_shdn_ack:
-seti
-ld A,0x03        
-ld (mmu_ccr),A 
-ld A,op_shdn
-ld (Sack_key),A
-call annc_ack
-ld A,0x00
-ld (mmu_ccr),A
-clri
-jp main_shdn
-
-; Check to see if we are transmitting our synchronizing signal or perhaps running
-; a user program. If so, we continue running.
-
-main_check_flags:
-ld A,(xmit_p)
-add A,0
-jp nz,main_loop
-ld A,(UPrun)
-add A,0
-jp nz,main_loop
-
-; We get here when the device is first powering up, in which case our effort to 
-; turn off the device will not take effect because the device is being kept awake
-; by a command incoming flag. We keep executing the main loop. We also get here
-; when it is time to shut down after commands have been executed or the shutdown 
-; counter has run down. We turn off device power, but continue executing the main
-; loop until the logic turns off.
-
-main_shdn:
 jp main_loop
 
 ; ---------------------------------------------------------------
