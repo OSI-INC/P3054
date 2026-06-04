@@ -27,8 +27,10 @@
 -- or DC, temperature sensor, accelerometer, EEPROM, or synchronizing signal.
 -- Simplify LED controller.
 
--- V1.6 [01-MAY-26] Remove shutdown counter from software. Add main loop counter
--- to control 0.5-Hz updates of temperature sensor.
+-- V1.6 [04-JUN-26] Remove shutdown counter from software. Add main loop counter
+-- to control 0.5-Hz updates of temperature sensor. Read out temperature sensor
+-- just before we initate a new measurement. Add identifier transmission as a
+-- transmit current cost reference.
 
 
 library ieee;  

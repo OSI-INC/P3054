@@ -137,6 +137,10 @@ const xmit_ch     0x0029 ; Telemetry Channel Number
 const tmp_chb    0x0030 ; Temperature counter, HI
 const tmp_clb    0x0031 ; Temperature counter, LO
 
+; Program Varables
+const temperature_hi   0x0040 ; Saved temperature measurement, HI
+const temperature_lo   0x0041 ; Saved temperature measurement, LO
+
 ; User Program Constants
 const ret_code      0x0A ; Return from subroutine instruction
 
@@ -265,7 +269,9 @@ ret
 ; ------------------------------------------------------------
 ; Perform a one-shot measurement of temperature and shut down
 ; the sensor afterwards. Current consumption will drop to 
-; about 250 nA after the single measurement.
+; about 250 nA after the single measurement. Prior to initiating
+; the conversion, the routine reads out the temperature and stores 
+; in two memory locations.
 
 tmp_single:
 
@@ -277,6 +283,26 @@ push B
 push C
 push H
 push L
+
+; Read out result.
+
+ld A,tmp_addr
+push A
+pop H
+ld A,tmp_treg
+push A
+pop L
+call i2c_rd16
+push C
+pop A
+add A,off_16bs   
+ld (temperature_hi),A
+push B
+pop A
+ld (temperature_lo),A
+
+
+; Initiate conversion.
 
 ld A,tmp_addr
 push A
@@ -636,7 +662,8 @@ ld (mmu_xch),A      ; and write the transmit channel register.
 ; The selection will be based upon the lower nibble of the
 ; channel number, which has range 1-14. Channels 1-8 are for
 ; the inputs AC/DC. Channel 9 for temperature. Channel 10 for
-; EEPROM, 11 for accelerometer, and 12-14 for synch.
+; EEPROM, 11 for accelerometer, 12 is for the device identifier
+; and 13-14 for synch.
 
 and A,0x0F
 push A
@@ -656,24 +683,18 @@ push B
 pop A
 sub A,11
 jp z,int_xmit_acc
+push B
+pop A
+sub A,12
+jp z,int_xmit_id
 jp int_xmit_sync
 
 ; Transmit a temperature measurement.
 
 int_xmit_temp:
-ld A,tmp_addr
-push A
-pop H
-ld A,tmp_treg
-push A
-pop L
-call i2c_rd16
-push C
-pop A
-add A,off_16bs   
+ld A,(temperature_hi)
 ld (mmu_xhb),A
-push B
-pop A
+ld A,(temperature_lo)
 ld (mmu_xlb),A
 jp int_xmit_rdy
 
@@ -741,6 +762,15 @@ add A,off_16bs
 ld (mmu_xhb),A
 push C
 pop A
+ld (mmu_xlb),A
+jp int_xmit_rdy
+
+; Transmit the device identifier.
+
+int_xmit_id:
+ld A,identifier_hi 
+ld (mmu_xhb),A
+ld A,identifier_lo 
 ld (mmu_xlb),A
 jp int_xmit_rdy
 
