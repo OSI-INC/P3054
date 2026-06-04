@@ -7,7 +7,7 @@
 const version          1 ; The firmwarwe version.
 const identifier_hi 0xAA ; 0-255, no restrictions
 const identifier_lo 0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
-const frequency_low   24 ; Radio frequency calibration.
+const frequency_low   14 ; Radio frequency calibration.
 
 ; CPU Address Map Boundary Constants
 const mvar_bot  0x0000 ; Bottom of Main Variable Space
@@ -201,6 +201,7 @@ const bma_16g      0x03 ; For ACC_RANGE, +-16g
 const bma_25hz     0x06 ; For ACC_CONF, 25 Hz, no averaging, no filter
 const bma_100hz    0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
 const bma_enable   0x04 ; For PWR_CTRL, enable data acquisition.
+const bma_disable  0x00 ; For PWR_CTRL, disable data acquisition.
 const bma_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
 const bma_sdly       50 ; Startup delay in RCK periods.
 
@@ -342,7 +343,8 @@ ret
 ; register, then the power control register, then wait for a time 
 ; greater than 500 us, then set the update rate and measurement range. 
 ; Beware changing the order of the first two writes and the delay. The 
-; accelerometer will deliver zeros if we deviate from the correct sequence.
+; accelerometer will deliver zeros if we deviate from the correct 
+; sequence.
 
 bma_config:
 
@@ -370,12 +372,13 @@ push A
 pop C
 call i2c_wr8
 
-; Enable data acquisition by writing to the PWR_CTRL register.
+; Enable or disable data acquisition by writing to the PWR_CTRL 
+; register.
 
 ld A,bma_pctrl
 push A
 pop L
-ld A,bma_enable
+ld A,bma_disable
 push A
 pop C
 call i2c_wr8
@@ -385,12 +388,12 @@ call i2c_wr8
 ld A,bma_sdly
 dly A 
 
-; Configure the accelerometer for 100 Hz update.
+; Configure accelerometer update rate.
 
 ld A,bma_aconf 
 push A
 pop L
-ld A,bma_100hz
+ld A,bma_25hz
 push A
 pop C
 call i2c_wr8
@@ -728,15 +731,15 @@ int_xmit_acc:
 ld A,bma_addr
 push A
 pop H
-ld A,bma_time0
+ld A,bma_x
 push A
 pop L
 call i2c_rd16
-push C
+push B
 pop A
 add A,off_16bs   
 ld (mmu_xhb),A
-push B
+push C
 pop A
 ld (mmu_xlb),A
 jp int_xmit_rdy
@@ -794,7 +797,6 @@ ld A,tmp_period
 ld (tmp_chb),A
 call tmp_single
 int_tmp_done:
-
 
 ; Restore registers.
 
@@ -1561,6 +1563,33 @@ ld (tmp_chb),A
 ld A,0
 ld (tmp_clb),A
 call ads_calib
+
+; Write some stuff to the non-volatile memory, filling the first
+; sixteen locations.
+
+ld A,0x00
+push A
+pop L
+ld A,nvm_addr
+push A
+pop H
+nvm_init:
+push L
+pop A
+rlc A
+rlc A
+rlc A
+rlc A
+push A
+pop C
+call i2c_wr8
+push L
+pop A
+inc A
+push A
+pop L
+sub A,15
+jp z,nvm_init
 
 ; Enable interrupts.
 

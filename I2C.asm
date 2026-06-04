@@ -2,7 +2,7 @@
 ; I2C Eight-Bit Write. Write to one eight-bit register 
 ; location on the sensor. We pass the I2C device address in 
 ; Register H, the sub-address in Register L, and the eight
-; bits to write in Register C.
+; bits to write in Register C. None of H, L, or C are modified.
 
 i2c_wr8:
        
@@ -177,6 +177,7 @@ ret
 ; location on the sensor. We pass the I2C device address in 
 ; Register H, the sub-address in Register L, first eight bits
 ; to write in Register C and final eight bits in Register B.
+; None of H, L, C, or B are modified.
 
 i2c_wr16:
        
@@ -400,7 +401,7 @@ ret
 ; I2C Sixteen-Bit Read. Read two consecutive bytes from the sensor
 ; address map. We pass the I2C device address in Register H and the
 ; sub-address in Register L. The first byte read will be returned
-; in C, the second in B.
+; in C, the second in B. Neither H nor L is modified.
 
 i2c_rd16:
 

@@ -61,6 +61,9 @@ entity main is
 		
 -- Configuration and Calibration of Transmitter.
 	constant fck_divisor : integer := 25;
+	constant tx_channel_default : integer := 1;
+	constant frequency_step : integer := 1; 
+	constant default_frequency_low : integer := 5;
 		
 -- Configuration of OSR8 CPU.
 	constant prog_cntr_len : integer := 12;
@@ -143,10 +146,7 @@ architecture behavior of main is
 	attribute syn_keep of TXI, TXA : signal is true;
 	attribute nomerge of TXI, TXA : signal is "";  
 	signal xmit_bits : std_logic_vector(15 downto 0);
-	constant tx_channel_default : integer := 1;
 	signal tx_channel : integer range 0 to 255 := tx_channel_default;
-	constant frequency_step : integer := 2; 
-	constant default_frequency_low : integer := 5;
 	signal frequency_low : integer range 0 to 31 := default_frequency_low;
 		
 -- Sensor Controller
