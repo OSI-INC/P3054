@@ -102,7 +102,7 @@ const min_int_p     25  ; Minimum transmit period
 const shdn_rst     250  ; Shutdown counter reset value
 const ads_rdly      16  ; Clock cycles for ADC readout
 const ads_cdly      22  ; Clock cycles for ADC self-calibration
-const tmp_period     9  ; Main loop times 256 cycles per tmp measurement
+const tmp_period     8  ; Temperature update period in quarter-seconds
 
 ; Stimulus Control Variables
 const Scurrent    0x0000 ; Stimulus Current
@@ -301,7 +301,6 @@ push B
 pop A
 ld (temperature_lo),A
 
-
 ; Initiate conversion.
 
 ld A,tmp_addr
@@ -458,15 +457,19 @@ push A
 ld A,ads_cal1
 ld (mmu_adc),A
 ld A,ads_cdly
+dly A
 ld A,ads_cal2
 ld (mmu_adc),A
 ld A,ads_cdly
+dly A
 ld A,ads_cal3
 ld (mmu_adc),A
 ld A,ads_cdly
+dly A
 ld A,ads_cal4
 ld (mmu_adc),A
 ld A,ads_cdly
+dly A
 
 pop A
 pop F
@@ -689,13 +692,27 @@ sub A,12
 jp z,int_xmit_id
 jp int_xmit_sync
 
-; Transmit a temperature measurement.
+; Transmit a temperature measurement. After that, we decrement
+; the two-byte temperature period counter. When it reaches zero,
+; update the temperature measurement and reset the counter.
 
 int_xmit_temp:
 ld A,(temperature_hi)
 ld (mmu_xhb),A
 ld A,(temperature_lo)
 ld (mmu_xlb),A
+ld A,(tmp_clb)
+sub A,1
+ld (tmp_clb),A
+ld A,(tmp_chb)
+sbc A,0
+ld (tmp_chb),A
+jp p,int_xmit_rdy
+ld A,tmp_period
+ld (tmp_chb),A
+ld A,0
+ld (tmp_clb),A
+call tmp_single
 jp int_xmit_rdy
 
 ; Read a sample from an ADC and transmit. We apply AC coupling for
@@ -814,19 +831,6 @@ ld (mmu_xcr),A      ; and write to transmit control register.
 ld A,tx_delay       ; Wait for transmit to
 dly A               ; complete.
 int_xmit_done:
-
-; Check the temperature measurement counter. If it is zero,
-; take a temperature measurement and reset the counter.
-
-int_tmp_meas:
-ld A,(tmp_chb)
-sub A,0
-jp nz,int_tmp_done
-ld (tmp_clb),A
-ld A,tmp_period
-ld (tmp_chb),A
-call tmp_single
-int_tmp_done:
 
 ; Restore registers.
 
@@ -1584,15 +1588,31 @@ ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
 ld A,ret_code      ; Put a return opcode at first byte
 ;ld (IY),A          ; in user program, in case of enable.
 
-; Calibrate the transmit clock and initialize the sensors.
+; Calibrate the transmit.
+
 call calibrate_tck
+
+; Calibrate the BMA423 accelerometer and the TMP117 thermometer.
+
 call bma_config
 call tmp_single
+
+; Set the period with which we will read out the thermometer, in
+; units of interrupt periods.
+
 ld A,tmp_period
 ld (tmp_chb),A
 ld A,0
 ld (tmp_clb),A
+
+; Put the CPU into boost mode and call the ADS7052 ADC calibration
+; routine. Move back out of boost.
+
+ld A,0x03 
+ld (mmu_ccr),A 
 call ads_calib
+ld A,0x00
+ld (mmu_ccr),A 
 
 ; Write some stuff to the non-volatile memory, filling the first
 ; sixteen locations.
@@ -1636,22 +1656,6 @@ and A,sr_cmdrdy     ; Check the command ready bit.
 jp z,main_nocmd     ; Jump if it's clear,
 call cmd_execute    ; execute command if it's set.
 main_nocmd:
-
-; Decrement the temperature period counter. When it reaches
-; zero, stop decrementing. Our interrupt routine will detect
-; the zero, measure temperature, and reset the counter.
-
-ld A,(tmp_chb)
-sub A,0
-jp z,main_notmp
-ld A,(tmp_clb)
-sub A,1
-ld (tmp_clb),A
-ld A,(tmp_chb)
-sbc A,0
-ld (tmp_chb),A
-main_notmp:
-
 
 jp main_loop
 

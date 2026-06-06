@@ -32,6 +32,9 @@
 -- just before we initate a new measurement. Add identifier transmission as a
 -- transmit current cost reference.
 
+-- V1.7 [05-JUN-26] Move all thermometer timing into the interrupt routine. Make
+-- sure CPU is in boost when performing ADC calibration, and insert calibration
+-- delays. 
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -815,11 +818,15 @@ begin
 	-- 16 CPU clock cycles for data to be available or 25 CPU cycles for a self-
 	-- calibration to complete. The ADC Controller runs on the Fast Clock (FCK). 
 	-- If FCK is not running, the ADC Controller will do nothing. The ADCRD signal 
-	-- must be asserted for at least one FCK period, which is certain to be the
-	-- case even when the CPU is running in boost mode at 5 mHz. The ADCCAL flag
-	-- tells the controller to read twenty-four bits instead of eighteen, which 
-	-- causes a self-calibration provided that the calibration access is the first 
-	-- one after power-up. No new data is recorded during a self-calibration.
+	-- must be asserted for at least one FCK period. The ADCCAL flag tells the 
+	-- controller to read twenty-four bits instead of eighteen, which causes a 
+	-- self-calibration provided that the calibration access is the first 
+	-- one after power-up. The controller reads fourteen-bit ADC samples into 
+	-- the bottom fourteen bits of the sixteen-bit adc_data register. If the
+	-- ADCRL bit is set, the controller will shift this data left once. If the
+	-- ADCRRL bit is set as well, the controller will shift the data left once
+	-- more. These shifts are fast and easy in the controller compared to in
+	-- our eight-bit CPU.
 	ADC_Controller : process (RESET, FCK) is
 		variable state, next_state : integer range 0 to 63 := 0;
 		constant end_access : integer := 50;
