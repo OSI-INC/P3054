@@ -34,10 +34,7 @@ const mmu_dfr   0x040C ; Diagnostic Flag Register (Read/Write)
 const mmu_sr    0x040D ; Status Register (Read)
 const mmu_cmp   0x040E ; Command Memory Portal (Read)
 const mmu_cpr   0x040F ; Command Processor Reset (Write)
-const mmu_i1ph  0x0410 ; Interrupt Timer One Period HI (Write)
-const mmu_i1pl  0x0411 ; Interrupt Timer One Period LO (Write)
-const mmu_i2ph  0x0412 ; Interrupt Timer Two Period HI (Write)
-const mmu_i2pl  0x0413 ; Interrupt Timer Two Period LO (Write)
+const mmu_boxcr 0x0410 ; Box Filter Control Register (Write)
 const mmu_i3p   0x0414 ; Interrupt Timer Three Period (Write)
 const mmu_i4p   0x0415 ; Interrupt Timer Four Period (Write)
 const mmu_i2c00 0x0416 ; i2c SDA=0 SCL=0 (Write)
@@ -50,12 +47,11 @@ const mmu_i2cMR 0x041C ; i2c Most Recent Eight Bits (Read)
 const mmu_adc   0x041D ; SPI Control Register (Write)
 const mmu_spidh 0x041E ; SPI Data MSB (Read)
 const mmu_spidl 0x041F ; SPI Data LSB (Read)
-const mmu_boxcr 0x0420 ; Box Filter Control Register (Write)
 
 ; Status Bit Masks, for use with status register
 const sr_cmdrdy  0x01 ; Command Ready Flag
-const sr_entck   0x02 ; Transmit Clock Enabled
-const sr_saa     0x04 ; Sensor Access Active Flag
+const sr_enfck   0x02 ; Enable Fast Clock
+const sr_ledon   0x04 ; LED On
 const sr_txa     0x08 ; Transmit Active Flag
 const sr_cpa     0x10 ; Command Processor Active
 const sr_boost   0x20 ; Boost Flag
@@ -100,28 +96,12 @@ const initial_tcd   15  ; Max possible value of TCK divisor
 const uprog_tick   163  ; User program interrupt period minus one
 const id_delay      33  ; To pad id delay to 50 TCK periods
 const min_int_p     25  ; Minimum transmit period
-const shdn_rst     250  ; Shutdown counter reset value
 const ads_rdly      16  ; Clock cycles for ADC readout
 const ads_cdly      22  ; Clock cycles for ADC self-calibration
 const tmp_period     8  ; Temperature update period in quarter-seconds
 
 ; Stimulus Control Variables
-const Scurrent    0x0000 ; Stimulus Current
-const Spulse1     0x0001 ; Pulse Length, HI
-const Spulse0     0x0002 ; Pulse Length, LO
-const Sint1       0x0003 ; Interval Length, HI
-const Sint0       0x0004 ; Interval Length, LO
-const Slen1       0x0005 ; Stimulus Length, HI
-const Slen0       0x0006 ; Stimulus Length, LO
-const Srand       0x0007 ; Random pulse timing
-const Srun        0x0008 ; Run stimulus
-const Spulse      0x0009 ; Stimulus Pulse Run Flag
 const Sack_key    0x000A ; Acknowledgement key
-const Sdly1       0x000B ; Stimulus Delay Byte One
-const Sdly0       0x000C ; Stimulus Delay Byte Zero
-const Sdelay      0x000D ; Stimulus Delay Run Flag
-const Smaxdly1    0x000E ; Max Delay, HI
-const Smaxdly0    0x000F ; Max Delay, LO
 
 ; Command Decode Variables
 const ccmdb       0x0016 ; Copy of Command Byte
@@ -326,43 +306,6 @@ pop A
 pop F
 ret
 
-; ------------------------------------------------------------
-; Configure the temperature sensor for fast temperature and
-; continuous temperature measurements.
-
-tmp_fast:
-
-; Push flags and registers.
-
-push F
-push A
-push B
-push C
-push H
-push L
-
-ld A,tmp_addr
-push A
-pop H
-ld A,tmp_creg
-push A
-pop L
-ld A,tmp_fasth
-push A
-pop C
-ld A,tmp_fastl
-push A
-pop B
-call i2c_wr16
-
-pop L
-pop H
-pop C
-pop B
-pop A
-pop F
-ret
-
 
 ; ------------------------------------------------------------
 ; Configure the accelerometer. We write to the power configuration 
@@ -532,118 +475,6 @@ ld (mmu_irst),A     ; with the bit two mask.
 call prog_bot       ; Call the user program.
 int_uprog_done:
 
-; Handle the stimulus interval interrupt. We decrement the stimulus
-; interval counter. We start a delay or a pulse using interrupt timer
-; two. We set and clear the stimulus delay, pulse, and run flags. The
-; first interval of a stimulus should start immediately after reception
-; of command, so the initial value of the interrupt period is one. We
-; correct this value in the handler.
-
-int_sii:
-
-ld A,(mmu_irqb)     ; Read the interrupt request bits
-and A,bit0_mask     ; and test bit zero.
-jp z,int_sii_done   ; If not set, skip this interrupt.
-
-ld A,(Srun)         ; Check the Srun flag. 
-add A,0             ; If it's been cleared,
-jp z,int_sii_done   ; we do nothing.
-
-ld A,(Sint1)        ; Set the stimulus interval delay to
-ld (mmu_i1ph),A     ; the value specified by the most 
-ld A,(Sint0)        ; recent command, or adapt to value written
-ld (mmu_i1pl),A     ; by user program to interval length locations.
-ld A,(Slen0)        ; Load LO byte of stimulus length counter.
-sub A,1             ; decrement
-ld (Slen0),A        ; save,
-ld A,(Slen1)        ; Load HI byte,
-sbc A,0             ; apply carry bit
-ld (Slen1),A        ; and save.
-jp nc,int_sii_do    ; If >=0, start a delay or a pulse.
-
-ld A,0              ; If <0, 
-ld (mmu_stc),A      ; turn off the stimulus current.
-ld (Srun),A         ; Clear the Srun,
-ld (Spulse),A       ; Spulse,
-ld (Sdelay),A       ; and Sdelay flags.
-ld (mmu_i1ph),A     ; Disable the interrupt
-ld (mmu_i1pl),A     ; timer.
-ld A,(mmu_imsk)     ; Mask the the 
-and A,bit0_clr      ; timer
-ld (mmu_imsk),A     ; interrupt.
-ld A,op_stop        ; Transmit a stimulus stop
-ld (Sack_key),A     ; acknowledgement
-call annc_ack       ; to mark stimulus end.
-jp int_sii_rst
-
-int_sii_do:
-ld A,1              ; Set the
-ld (Spulse),A       ; pulse flag.
-ld A,0              ; Clear the delay
-ld (Sdelay),A       ; flag.
-ld A,(Scurrent)     ; Load stimulus current and
-ld (mmu_stc),A      ; turn on the stimulus.
-ld A,(Spulse1)      ; Set interrupt timer 
-ld (mmu_i2ph),A     ; two period to the
-ld A,(Spulse0)      ; pulse
-ld (mmu_i2pl),A     ; length.
-ld A,(mmu_imsk)     ; Unmask 
-or A,bit1_mask      ; Timer Two
-ld (mmu_imsk),A     ; interrupt.
-ld A,bit1_mask      ; Reset
-ld (mmu_irst),A     ; Timer Two
-jp int_sii_rst
-
-int_sii_rst:
-ld A,bit0_mask      ; Reset interrupt timer one, which clears
-ld (mmu_irst),A     ; its interrupt bit and reloads its timer.
-
-int_sii_done:
-
-; Handle the delay and pulse interrupt, which is generated by 
-; Timer Two. The Sdelay flag tells us if the interrupt marks
-; the end of a delay or the end of a pulse. We either start
-; a pulse or end a pulse.
-
-int_sdp:
-
-ld A,(mmu_irqb)     ; Read the interrupt request bits
-and A,bit1_mask     ; and test bit one,
-jp z,int_sdp_done   ; skip if not delay and pulse interrupt.
-ld A,(Sdelay)       ; Check delay flag
-add A,0             ; and if set, end delay and start pulse
-jp z,int_sdp_pulse  ; otherwise end pulse.
-
-int_sdp_delay:
-ld A,(Scurrent)     ; Turn on the 
-ld (mmu_stc),A      ; stimulus current.
-ld A,(Spulse1)      ; Load timer two
-ld (mmu_i2ph),A     ; with the
-ld A,(Spulse0)      ; pulse 
-ld (mmu_i2pl),A     ; length.
-ld A,0              ; Clear the
-ld (Sdelay),A       ; delay flag.
-ld A,1              ; Set the
-ld (Spulse),A       ; pulse flag.
-jp int_sdp_rst
-
-int_sdp_pulse:
-ld A,0              ; Stop the
-ld (mmu_stc),A      ; stimulus pulse.
-ld (Spulse),A       ; Clear pulse flag.
-ld (Sdelay),A       ; And the delay flag.
-ld (mmu_i2ph),A     ; Disable the timer two
-ld (mmu_i2pl),A     ; interrupt.
-ld A,(mmu_imsk)     ; Mask 
-and A,bit1_clr      ; interrupt
-ld (mmu_imsk),A     ; two.
-
-int_sdp_rst:
-ld A,bit1_mask      ; Reset Timer Two, which loads the
-ld (mmu_irst),A     ; the current period into its counter.
-
-int_sdp_done:
-
 ; Handle the transmit interrupt, if it exists. We transmit a synchronizing signal.
 ; We won't wait for the transmission to complete because we are certain to follow 
 ; our transmission with at least one RCK period when we move out of boost. 
@@ -666,8 +497,7 @@ ld (mmu_xch),A      ; and write the transmit channel register.
 ; The selection will be based upon the lower nibble of the
 ; channel number, which has range 1-14. Channels 1-8 are for
 ; the inputs AC/DC. Channel 9 for temperature. Channel 10 for
-; EEPROM, 11 for accelerometer, 12 is for the device identifier
-; and 13-14 for synch.
+; EEPROM, 11 for accelerometer, 12-14 are for the device identifier.
 
 and A,0x0F
 push A
@@ -687,11 +517,7 @@ push B
 pop A
 sub A,11
 jp z,int_xmit_acc
-push B
-pop A
-sub A,12
-jp z,int_xmit_id
-jp int_xmit_sync
+jp int_xmit_id
 
 ; Transmit a temperature measurement. After that, we decrement
 ; the two-byte temperature period counter. When it reaches zero,
@@ -791,36 +617,6 @@ ld (mmu_xhb),A
 ld A,identifier_lo 
 ld (mmu_xlb),A
 jp int_xmit_rdy
-
-; Transmit synchronizing signal.
-
-int_xmit_sync:
-ld A,0              ; Load A with zero
-ld (mmu_xlb),A      ; write to transmit LO register.
-ld A,(Srun)         ; Load A with Srun
-add A,0             ; check value
-jp nz,int_xmit_stim ; jump if set.
-
-ld A,synch_nostim   ; Load A with synch_nostim and
-ld (mmu_xhb),A      ; write to transmit HI register.
-jp int_xmit_rdy   
-
-int_xmit_stim:
-ld A,(Spulse)        ; Load A with Spulse
-add A,0              ; check value, jump if set.
-jp nz,int_xmit_pulse
-
-ld A,synch_stim     ; Load A with synch_stim and
-ld (mmu_xhb),A      ; write to transmit HI register.
-jp int_xmit_rdy   
-
-int_xmit_pulse:
-ld A,(Scurrent)     ; Load A with Scurrent and
-sla A               ; shift left
-sla A               ; three times to
-sla A               ; multiply by eight
-add A,synch_stim    ; then add synch_stim.
-ld (mmu_xhb),A      ; Write to transmit HI register.
 
 ; Ready to transmit. The sample bytes and channel number are 
 ; loaded in their respective registers. Now all we need to 
@@ -1253,59 +1049,37 @@ call get_cmd_byte
 
 ld (Sack_key),A
 
-; The stimulus stop instruction.
+; The stimulus stop instruction. All we are going to do is
+; turn off the LED.
 
 check_stop_stim:
 ld A,(ccmdb)
 sub A,op_stop
 jp nz,check_stop_stim_end
-ld A,0                ; Clear
-ld (Srun),A           ; run flag
-ld (mmu_stc),A        ; stop stimulus
-ld (mmu_i1ph),A       ; and disable the
-ld (mmu_i1pl),A       ; timer one interrupt.
-ld A,(mmu_imsk)       ; Mask
-and A,bit0_clr        ; interrupt one
-ld (mmu_imsk),A       ; to stop stimulus.
+ld A,0                ; Clear A and
+ld (mmu_stc),A        ; turn off lamp.
 call annc_ack         ; Acknowledge the stop.
 jp cmd_loop
 check_stop_stim_end:
 
-; The stimulus start instruction.
+; The stimulus start instruction. All we do is turn on the 
+; LED. But we mimic the behavior of the A3041 reading out
+; all the stimulus characteristics.
 
 check_start:
 ld A,(ccmdb)
 sub A,op_start
 jp nz,check_start_end
 call get_cmd_byte    ; Read stimulus current.
-ld (Scurrent),A      ; and store in memory.
-call get_cmd_byte    ; Read pulse length byte one
-ld (Spulse1),A       ; and store to memory.
-call get_cmd_byte    ; Read pulse length byte zero
-ld (Spulse0),A       ; and store in memory.
-call get_cmd_byte    ; Read interval length byte one,
-ld (Sint1),A         ; store in memory.
-call get_cmd_byte    ; Read interval length byte zero,
-ld (Sint0),A         ; store in memory,
-call get_cmd_byte    ; Read stimulus length byte one,
-ld (Slen1),A         ; and write to memory.
-call get_cmd_byte    ; Read stimulus length byte zero,
-ld (Slen0),A         ; and write to memory.
-call get_cmd_byte    ; Read randomization byte
-ld (Srand),A         ; and write to memory.
-ld A,0x01            ; Set the
-ld (Srun),A          ; stimulus run flag.
-ld A,0               ; Clear the 
-ld (Spulse),A        ; pulse and
-ld (Sdelay),A        ; delay flags.  
-ld (mmu_i1ph),A      ; Set the Timer One period to
-ld A,1               ; one, so that our first interval
-ld (mmu_i1pl),A      ; will begin within a millisecond.
-ld A,bit0_mask       ; Reset Timer One interrupt to load
-ld (mmu_irst),A      ; our value of one into its counter.
-ld A,(mmu_imsk)      ; Load the interrupt mask and
-or A,bit0_mask       ; set bit zero to enable
-ld (mmu_imsk),A      ; interrupt timer one.
+ld A,0x01            ; Load a one for bit zero
+ld (mmu_stc),A       ; and turn on the LED.
+call get_cmd_byte    ; Read pulse length byte one.
+call get_cmd_byte    ; Read pulse length byte zero.
+call get_cmd_byte    ; Read interval length byte one.
+call get_cmd_byte    ; Read interval length byte zero.
+call get_cmd_byte    ; Read stimulus length byte one.
+call get_cmd_byte    ; Read stimulus length byte zero.
+call get_cmd_byte    ; Read randomization byte.
 call annc_ack        ; Acknowledge the start.
 jp cmd_loop
 check_start_end:
@@ -1458,18 +1232,12 @@ ld IY,prog_bot          ; Load IY with the base of
 jp cmd_loop             ; user program memory.
 check_pgrst_end:
 
-; Shut down the device. We do this by clearing the transmit, user program
-; and stimulus run flags. We acknowledge the shutdown command. The main loop 
-; will then shut down the device for us.
+; Shut down the device. We acknowledge but otherwise do nothing.
 
 check_shdn:
 ld A,(ccmdb)
 sub A,op_shdn
 jp nz,check_shdn_end 
-ld A,0x00            ; Clear the 
-ld (xmit_p),A        ; transmit enable,
-ld (UPrun),A         ; user program run,
-ld (Srun),A          ; and stimulus run flags
 call annc_ack        ; Acknowledge shutdown command.
 jp cmd_loop
 check_shdn_end:
@@ -1571,10 +1339,6 @@ ld A,0             ; Make sure the stimulus
 ld (mmu_stc),A     ; current is zero.
 ld (mmu_acfg),A    ; Unassert MSR and select AC coupling.
 ld (mmu_dfr),A     ; Set the diagnostic flags to zero.
-ld (mmu_i1ph),A    ; Set all the 
-ld (mmu_i1pl),A    ; interrupt timer
-ld (mmu_i2ph),A    ; periods to zero,
-ld (mmu_i2pl),A    ; which disables
 ld (mmu_i3p),A     ; their interrupt
 ld (mmu_i4p),A     ; generation.
 ld (mmu_imsk),A    ; Mask all interrupts.
@@ -1587,7 +1351,7 @@ ld (mmu_rfc),A     ; calibration to the firmware.
 
 ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
 ld A,ret_code      ; Put a return opcode at first byte
-;ld (IY),A          ; in user program, in case of enable.
+ld (IY),A          ; in user program, in case of enable.
 
 ; Calibrate the transmit.
 

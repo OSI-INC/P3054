@@ -34,7 +34,8 @@
 
 -- V1.7 [05-JUN-26] Move all thermometer timing into the interrupt routine. Make
 -- sure CPU is in boost when performing ADC calibration, and insert calibration
--- delays. 
+-- delays. Remove stimulus support, except that on stimulus start, the LED turns
+-- on, and on stimulus stop, it turns off.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -103,10 +104,7 @@ entity main is
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
 	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal(Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
-	constant mmu_i1ph  : integer := 16#10#; -- Interrupt Timer One Period MSB (Write)
-	constant mmu_i1pl  : integer := 16#11#; -- Interrupt Timer One Period LSB (Write)
-	constant mmu_i2ph  : integer := 16#12#; -- Interrupt Timer Two Period MSB (Write)
-	constant mmu_i2pl  : integer := 16#13#; -- Interrupt Timer Two Period LSB (Write)
+	constant mmu_boxcr : integer := 16#10#; -- Box Filter Control Register (Write)
 	constant mmu_i3p   : integer := 16#14#; -- Interrupt Timer Three Period MSB (Write)
 	constant mmu_i4p   : integer := 16#15#; -- Interrupt Timer Four Period MSB (Write)
 	constant mmu_i2c00 : integer := 16#16#; -- i2c SDA=0 SCL=0 (Write)
@@ -119,7 +117,6 @@ entity main is
 	constant mmu_spicr : integer := 16#1D#; -- SPI Control Register (Write)
 	constant mmu_spidh : integer := 16#1E#; -- SPI Data MSB (Read)
 	constant mmu_spidl : integer := 16#1F#; -- SPI Data LSB (Read)
-	constant mmu_boxcr : integer := 16#20#; -- BOX Filter Control Register (Write)
 end;
 
 architecture behavior of main is
@@ -211,9 +208,8 @@ architecture behavior of main is
 -- Interrupt Handler signals.
 	signal int_mask, int_bits, int_rst : std_logic_vector(7 downto 0);
 	signal int_rst_d, int_rst_s : std_logic_vector(7 downto 0);
-	signal int_period_1, int_period_2 : std_logic_vector(15 downto 0);
 	signal int_period_3, int_period_4 : std_logic_vector(7 downto 0);
-	signal INTZ1, INTZ2, INTZ3, INTZ4 : boolean; -- Interrupt Counter Zero Flag
+	signal INTZ3, INTZ4 : boolean; -- Interrupt Counter Zero Flag
 	
 -- Byte Receiver
 	signal RPS, -- Radio Frequency Power Synchronized
@@ -362,7 +358,7 @@ begin
 -- (most significant byte at lower address). 
 	MMU : process (all) is
 		variable all_bits : integer range 0 to 4096;
-		variable bottom_bits : integer range 0 to 63;
+		variable bottom_bits : integer range 0 to 31;
 	begin		
 		-- By default, don't write to RAM or PROG memories, nor do we read from
 		-- the command memory FIFO.
@@ -389,7 +385,7 @@ begin
 		-- along with CPU Write. They will be ready before the falling 
 		-- edge of the CPU clock.
 		all_bits := to_integer(unsigned(cpu_addr));
-		bottom_bits := to_integer(unsigned(cpu_addr(6 downto 0)));
+		bottom_bits := to_integer(unsigned(cpu_addr(5 downto 0)));
 		cpu_data_in <= (others => '0');
 		case all_bits is
 			when ram_bot to ram_top => 
@@ -410,7 +406,7 @@ begin
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready
 							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Fast Clock Enabled
-							cpu_data_in(2) <= to_std_logic(ADCBSY); -- ADC Busy 
+							cpu_data_in(2) <= LED;                  -- LED On
 							cpu_data_in(3) <= to_std_logic(TXA);    -- Transmit Active
 							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active 
 							cpu_data_in(5) <= to_std_logic(BOOST);  -- Boost CPU
@@ -444,8 +440,6 @@ begin
 			ENFCK <= false;
 			BOOST <= false;
 			tx_channel <= 0;
-			int_period_1 <= (others => '0');
-			int_period_2 <= (others => '0');
 			int_period_3 <= (others => '0');
 			int_period_4 <= (others => '0');
 			stimulus_current <= 0;
@@ -484,17 +478,13 @@ begin
 						when mmu_rfc  => frequency_low <= to_integer(unsigned(cpu_data_out));
 						when mmu_imsk => int_mask <= cpu_data_out;
 						when mmu_irst => int_rst <= cpu_data_out;
-						when mmu_stc  => stimulus_current <= to_integer(unsigned(cpu_data_out));
+						when mmu_stc  => LED <= cpu_data_out(0);
 						when mmu_rst  => SWRST <= (cpu_data_out(0) = '1');
 						when mmu_ccr  => 
 							ENFCK <= (cpu_data_out(0) = '1');
 							BOOST <= (cpu_data_out(1) = '1');
 						when mmu_dfr  => df_reg <= cpu_data_out(3 downto 0);
 						when mmu_cpr  => CPRST <= true;
-						when mmu_i1ph => int_period_1(15 downto 8) <= cpu_data_out;
-						when mmu_i1pl => int_period_1(7 downto 0) <= cpu_data_out;
-						when mmu_i2ph => int_period_2(15 downto 8) <= cpu_data_out;
-						when mmu_i2pl => int_period_2(7 downto 0) <= cpu_data_out;
 						when mmu_i3p  => int_period_3(7 downto 0) <= cpu_data_out;
 						when mmu_i4p  => int_period_4(7 downto 0) <= cpu_data_out;
 						when mmu_i2c00 => 
@@ -652,24 +642,6 @@ begin
 		-- asynchronous assertion of reset, but not asynchronous unassertion of reset. 
 		-- We must make the unassertion synchronous with the clock that drives the register.
 	
-		-- Interrupt One Reset
-		if int_rst(0) = '1' then
-			int_rst_d(0)  <= '1';
-			int_rst_s(0) <= '1';
-		elsif falling_edge(RCK) then
-			int_rst_d(0)  <= '0';
-			int_rst_s(0) <= int_rst_d(0);
-		end if;
-		
-		-- Interrupt Two Reset
-		if int_rst(1) = '1' then
-			int_rst_d(1)  <= '1';
-			int_rst_s(1) <= '1';
-		elsif falling_edge(RCK) then
-			int_rst_d(1)  <= '0';
-			int_rst_s(1) <= int_rst_d(1);
-		end if;
-		
 		-- Interrupt Three Reset
 		if int_rst(2) = '1' then
 			int_rst_d(2)  <= '1';
@@ -702,34 +674,6 @@ begin
 		-- zero so that they stick at zero. Just disabling the interrupt does not stop 
 		-- the counter.
 
-		-- Interrupt Timer One: a sixteen-bit delay timers. Counts milliseconds using 
-		-- the millisecond clock, which is synchronous with RCK.
-		if (int_rst_s(0) = '1') then
-			counter_1 := 0;
-		elsif rising_edge(RCK) then
-			if (mcnt = 0) then
-				if (counter_1 = 0) then
-					counter_1 := to_integer(unsigned(int_period_1));
-				else
-					counter_1 := counter_1 - 1;
-				end if;
-			end if;
-		end if;
-
-		-- Interrupt Timer Two: a sixteen-bit delay timers. Counts milliseconds using the
-		-- millisecond clock, which is synchronous with RCK.
-		if (int_rst_s(1) = '1') then
-			counter_2 := 0;
-		elsif rising_edge(RCK) then
-			if (mcnt = 0) then
-				if (counter_2 = 0) then
-					counter_2 := to_integer(unsigned(int_period_2));
-				else
-					counter_2 := counter_2 - 1;
-				end if;
-			end if;
-		end if;
-		
 		-- Interrupt Timer Three: an eight bit repeating clock. Counts RCK.
 		if rising_edge(RCK) then
 			if (counter_3 = 0) then
@@ -751,29 +695,7 @@ begin
 		-- Using the interrupt reset bits that we synchronized with RCK, we 
 		-- reset the interrupt bits. Otherwise, we set the interrupt timer
 		-- bit when the timer reaches zero.
-		
-		-- Timer One Control
-		if (int_rst_s(0) = '1') then
-			int_bits(0) <= '0';
-			INTZ1 <= true;
-		elsif rising_edge(RCK) then
-			INTZ1 <= (counter_1 = 0);
-			if ((counter_1 = 0) and (not INTZ1)) then
-				int_bits(0) <= '1';
-			end if;
-		end if;
-		
-		-- Timer Two Control
-		if (int_rst_s(1) = '1') then
-			int_bits(1) <= '0';
-			INTZ2 <= true;
-		elsif rising_edge(RCK) then
-			INTZ2 <= (counter_2 = 0);
-			if ((counter_2 = 0) and (not INTZ2)) then
-				int_bits(1) <= '1';
-			end if;
-		end if;
-		
+				
 		-- Timer Three Control
 		if (int_rst_s(2) = '1') then
 			int_bits(2) <= '0';
@@ -797,6 +719,9 @@ begin
 		end if;
 
 		-- We disable the remaining interrupt lines.
+		for i in 0 to 1 loop
+			int_bits(i) <= '0';
+		end loop;
 		for i in 4 to 7 loop
 			int_bits(i) <= '0';
 		end loop;
@@ -1057,22 +982,7 @@ begin
 		end if;
 	end process;
 
--- The Indicator Controller takes the stimulus current and sets the value of LED to
--- turn on or off the lamp.
-	Lamp_Controller: process (RESET, RCK) is 
-	begin
-		if RESET = '1' then
-			LED <= '0';
-		elsif rising_edge(RCK) then
-			if stimulus_current > 0 then
-				LED <= '1';
-			else 
-				LED <= '0';
-			end if;
-		end if;
-	end process;
-	
-	-- The Receive Power signal must be synchronized with the RCK clock.
+-- The Receive Power signal must be synchronized with the RCK clock.
 	Synchronize_RP: process (RESET, RCK) is 
 	begin
 		if RESET = '1' then
