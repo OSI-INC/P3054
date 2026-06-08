@@ -47,9 +47,10 @@ const mmu_i2cA1 0x0419 ; i2c SDA=A SCL=1 (Write)
 const mmu_i2cZ0 0x041A ; i2c SDA=Z SCL=0 (Write)
 const mmu_i2cZ1 0x041B ; i2c SDA=Z SCL=1 (Write) 
 const mmu_i2cMR 0x041C ; i2c Most Recent Eight Bits (Read)
-const mmu_adc 0x041D ; SPI Control Register (Write)
+const mmu_adc   0x041D ; SPI Control Register (Write)
 const mmu_spidh 0x041E ; SPI Data MSB (Read)
 const mmu_spidl 0x041F ; SPI Data LSB (Read)
+const mmu_boxcr 0x0420 ; Box Filter Control Register (Write)
 
 ; Status Bit Masks, for use with status register
 const sr_cmdrdy  0x01 ; Command Ready Flag
@@ -735,7 +736,7 @@ ld (mmu_acfg),A
 ld A,(xmit_ch)
 dec A
 and A,0x03
-or A,0x34
+or A,0x44
 ld (mmu_adc),A
 ld A,ads_rdly
 dly A

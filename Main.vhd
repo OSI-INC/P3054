@@ -119,6 +119,7 @@ entity main is
 	constant mmu_spicr : integer := 16#1D#; -- SPI Control Register (Write)
 	constant mmu_spidh : integer := 16#1E#; -- SPI Data MSB (Read)
 	constant mmu_spidl : integer := 16#1F#; -- SPI Data LSB (Read)
+	constant mmu_boxcr : integer := 16#20#; -- BOX Filter Control Register (Write)
 end;
 
 architecture behavior of main is
@@ -156,15 +157,17 @@ architecture behavior of main is
 		
 -- Sensor Controller
 	signal ADCCAL, -- Calibrate the Selected ADC
-		ADCRD, -- ADC Access Initiate 
-		ADCRL, -- ADC Rotate Left
-		ADCRRL, -- ADC Rotate Left Again
+		ADCRD, -- Initiate ADC Read
 		ADCBSY -- ADC Busy
 		: boolean := false;
 	attribute syn_keep of ADCRD, ADCBSY : signal is true;
 	attribute nomerge of ADCRD, ADCBSY : signal is "";  
-	signal adc_data : std_logic_vector(15 downto 0);
-	signal spi_ctrl : std_logic_vector(1 downto 0);
+	signal adc_data : std_logic_vector(17 downto 0);
+	signal adc_select : std_logic_vector(1 downto 0);
+	signal adc_shift : std_logic_vector (2 downto 0);
+	signal BOXCK1, BOXCK2, BOXCK3, BOXCK4 : std_logic;
+	signal BOXCLR1, BOXCLR2, BOXCLR3, BOXCLR4 : std_logic;
+	signal box1_data, box2_data, box3_data, box4_data : std_logic_vector(17 downto 0);
 
 -- Sensor Readout
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
@@ -359,7 +362,7 @@ begin
 -- (most significant byte at lower address). 
 	MMU : process (all) is
 		variable all_bits : integer range 0 to 4096;
-		variable bottom_bits : integer range 0 to 31;
+		variable bottom_bits : integer range 0 to 63;
 	begin		
 		-- By default, don't write to RAM or PROG memories, nor do we read from
 		-- the command memory FIFO.
@@ -386,7 +389,7 @@ begin
 		-- along with CPU Write. They will be ready before the falling 
 		-- edge of the CPU clock.
 		all_bits := to_integer(unsigned(cpu_addr));
-		bottom_bits := to_integer(unsigned(cpu_addr(5 downto 0)));
+		bottom_bits := to_integer(unsigned(cpu_addr(6 downto 0)));
 		cpu_data_in <= (others => '0');
 		case all_bits is
 			when ram_bot to ram_top => 
@@ -405,20 +408,20 @@ begin
 							cpu_data_in(1) <= MSR;
 						when mmu_dfr => cpu_data_in(3 downto 0) <= df_reg;
 						when mmu_sr => 
-							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready Flag
+							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready
 							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Fast Clock Enabled
-							cpu_data_in(2) <= to_std_logic(ADCBSY); -- ADC Busy Flag
-							cpu_data_in(3) <= to_std_logic(TXA);    -- Transmit Active Flag
-							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active Flag
-							cpu_data_in(5) <= to_std_logic(BOOST);  -- Boost CPU Flag
+							cpu_data_in(2) <= to_std_logic(ADCBSY); -- ADC Busy 
+							cpu_data_in(3) <= to_std_logic(TXA);    -- Transmit Active
+							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active 
+							cpu_data_in(5) <= to_std_logic(BOOST);  -- Boost CPU
 							cpu_data_in(6) <= CME;                  -- Command Memory Empty
 							cpu_data_in(7) <= RCK;                  -- Reference Clock
 						when mmu_cmp =>
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
-						when mmu_spidh => cpu_data_in <= adc_data(15 downto 8);
-						when mmu_spidl => cpu_data_in <= adc_data(7 downto 0);
+						when mmu_spidh => cpu_data_in <= adc_data(17 downto 10);
+						when mmu_spidl => cpu_data_in <= adc_data(9 downto 2);
 						when others => null;
 					end case;
 				end if;
@@ -523,11 +526,12 @@ begin
 							i2c_in(7 downto 1) <= i2c_in(6 downto 0);
 							i2c_in(0) <= SDA;
 						when mmu_spicr => 
-							spi_ctrl <= cpu_data_out(1 downto 0);
+							adc_select <= cpu_data_out(1 downto 0);
 							ADCRD <= (cpu_data_out(2) = '1');
 							ADCCAL <= (cpu_data_out(3) = '1');
-							ADCRL <= (cpu_data_out(4) = '1');
-							ADCRRL <= (cpu_data_out(5) = '1');
+							adc_shift <= cpu_data_out(6 downto 4);
+						when mmu_boxcr =>
+							BOXCLR1 <= cpu_data_out(0);
 						when others => null;
 					end case;
 				end if;
@@ -812,21 +816,17 @@ begin
 		end if;
 	end process;
 
-	-- The ADC Controller reads out one of the fourteen-bit ADCs when ADC Read
-	-- (ADCRD) is asserted. While running, it asserts ADC BUSY (ADCBSY).
-	-- The CPU can poll ADCBSY until the access is complete or it can wait for
-	-- 16 CPU clock cycles for data to be available or 25 CPU cycles for a self-
+	-- The ADC Controller starts readoing one of the fourteen-bit ADCs when 
+	-- it detects ADC Read (ADCRD) is asserted. The CPU should wait 20 CPU
+	-- cycles for data to be available and 25 CPU cycles for a self-
 	-- calibration to complete. The ADC Controller runs on the Fast Clock (FCK). 
 	-- If FCK is not running, the ADC Controller will do nothing. The ADCRD signal 
 	-- must be asserted for at least one FCK period. The ADCCAL flag tells the 
 	-- controller to read twenty-four bits instead of eighteen, which causes a 
 	-- self-calibration provided that the calibration access is the first 
 	-- one after power-up. The controller reads fourteen-bit ADC samples into 
-	-- the bottom fourteen bits of the sixteen-bit adc_data register. If the
-	-- ADCRL bit is set, the controller will shift this data left once. If the
-	-- ADCRRL bit is set as well, the controller will shift the data left once
-	-- more. These shifts are fast and easy in the controller compared to in
-	-- our eight-bit CPU.
+	-- the bottom fourteen bits of the eighteen-bit adc_data register. It shifts
+	-- the data left zero to four times depending upon the value of adc_shift.
 	ADC_Controller : process (RESET, FCK) is
 		variable state, next_state : integer range 0 to 63 := 0;
 		constant end_access : integer := 50;
@@ -854,11 +854,7 @@ begin
 				next_state := state + 1;
 			end if;
 			if (state = end_access) then
-				if ADCRD then
-					next_state := state;
-				else
-					next_state := 0;
-				end if;
+				next_state := 0;
 			end if;
 			if ADCCAL then
 				SCK <= to_std_logic(
@@ -875,26 +871,49 @@ begin
 					adc_data <= (others => '0');
 				end if;
 				if (state >= 4) and (state <= 30) and ((state mod 2) = 0) then
-					adc_data(15 downto 1) <= adc_data(14 downto 0);
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
 					adc_data(0) <= SDO;
 				end if;
-				if (state = 31) and ADCRL then
-					adc_data(15 downto 1) <= adc_data(14 downto 0);
+				if (state = 31) and (unsigned(adc_shift) >= 1) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
 					adc_data(0) <= '0';
 				end if;
-				if (state = 32) and ADCRRL then
-					adc_data(15 downto 1) <= adc_data(14 downto 0);
+				if (state = 32) and (unsigned(adc_shift) >= 2) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
+					adc_data(0) <= '0';
+				end if;
+				if (state = 33) and (unsigned(adc_shift) >= 3) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
+					adc_data(0) <= '0';
+				end if;
+				if (state = 34) and (unsigned(adc_shift) >= 4) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
 					adc_data(0) <= '0';
 				end if;
 			end if;
+			
+			BOXCK1 <= to_std_logic((state = 35) and (adc_select = "00"));
+			BOXCK2 <= to_std_logic((state = 35) and (adc_select = "01"));
+			BOXCK3 <= to_std_logic((state = 35) and (adc_select = "10"));
+			BOXCK4 <= to_std_logic((state = 35) and (adc_select = "11"));
+				
 			state := next_state;
 		end if;
 		
-		NADC1 <= to_std_logic(not (ADCBSY and (spi_ctrl = "00")));
-		NADC2 <= to_std_logic(not (ADCBSY and (spi_ctrl = "01")));
-		NADC3 <= to_std_logic(not (ADCBSY and (spi_ctrl = "10")));
-		NADC4 <= to_std_logic(not (ADCBSY and (spi_ctrl = "11")));
+		NADC1 <= to_std_logic(not (ADCBSY and (adc_select = "00")));
+		NADC2 <= to_std_logic(not (ADCBSY and (adc_select = "01")));
+		NADC3 <= to_std_logic(not (ADCBSY and (adc_select = "10")));
+		NADC4 <= to_std_logic(not (ADCBSY and (adc_select = "11")));
 	end process;
+	
+-- The ADC Accumulators accumulate ADC samples.
+	Accumulator1 : entity Accumulator port map (
+		DataA => box1_data,
+		DataB => adc_data,
+		Clock => BOXCK1,
+		Reset => BOXCLR1,
+		ClockEn => '1',
+		Result => box1_data);
 
 -- The Message Transmitter responds to Transmit Initiate (TXI) by turning on the 
 -- radio-frequency oscillator, reading sixteen bits from one of the sensors and
@@ -1416,6 +1435,7 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(0);
+--	TP <= df_reg(0);
+	TP <= BOXCK1;
 
 end behavior;

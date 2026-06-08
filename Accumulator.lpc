@@ -1,0 +1,39 @@
+[Device]
+Family=machxo2
+PartType=LCMXO2-1200ZE
+PartName=LCMXO2-1200ZE-1SG32C
+SpeedGrade=1
+Package=QFN32
+OperatingCondition=COM
+Status=S
+
+[IP]
+VendorName=Lattice Semiconductor Corporation
+CoreType=LPM
+CoreStatus=Demo
+CoreName=Adder
+CoreRevision=3.5
+ModuleName=Accumulator
+SourceFormat=VHDL
+ParameterFileVersion=1.0
+Date=06/08/2026
+Time=15:23:18
+
+[Parameters]
+Verilog=0
+VHDL=1
+EDIF=1
+Destination=Synplicity
+Expression=BusA(0 to 7)
+Order=Big Endian [MSB:LSB]
+IO=0
+InputWidth=18
+Representation=Unsigned
+UseCIport=0
+COport=None
+OutReg=1
+Complex=0
+Stage=0
+
+[Command]
+cmd_line= -w -n Accumulator -lang vhdl -synth synplify -bus_exp 7 -bb -arch xo2c00 -type mgaddsub -width 18 -unsigned -output_reg -enable -pipeline 0
