@@ -15,7 +15,7 @@ const stack_bot 0x0100 ; Bottom of Program Stack
 const uvar_bot  0x0200 ; Bottom of User Variable Space
 const ctrl_bot  0x0400 ; Bottom Control Register Space
 const prog_bot  0x0800 ; Bottom of User Program Memory
-const prog_top  0x0FFF ; Top of User Program Memory
+const prog_top  0x08FF ; Top of User Program Memory
 
 ; Address Map Locations
 const mmu_irqb  0x0400 ; Interrupt Request Bits (Read)
@@ -34,7 +34,6 @@ const mmu_dfr   0x040C ; Diagnostic Flag Register (Read/Write)
 const mmu_sr    0x040D ; Status Register (Read)
 const mmu_cmp   0x040E ; Command Memory Portal (Read)
 const mmu_cpr   0x040F ; Command Processor Reset (Write)
-const mmu_boxcr 0x0410 ; Box Filter Control Register (Write)
 const mmu_i3p   0x0414 ; Interrupt Timer Three Period (Write)
 const mmu_i4p   0x0415 ; Interrupt Timer Four Period (Write)
 const mmu_i2c00 0x0416 ; i2c SDA=0 SCL=0 (Write)
@@ -44,9 +43,18 @@ const mmu_i2cA1 0x0419 ; i2c SDA=A SCL=1 (Write)
 const mmu_i2cZ0 0x041A ; i2c SDA=Z SCL=0 (Write)
 const mmu_i2cZ1 0x041B ; i2c SDA=Z SCL=1 (Write) 
 const mmu_i2cMR 0x041C ; i2c Most Recent Eight Bits (Read)
-const mmu_adc   0x041D ; SPI Control Register (Write)
-const mmu_spidh 0x041E ; SPI Data MSB (Read)
-const mmu_spidl 0x041F ; SPI Data LSB (Read)
+const mmu_adc   0x041D ; ADC Control Register (Write)
+const mmu_adcdh 0x041E ; ADC Data MSB (Read)
+const mmu_adcdl 0x041F ; ADC Data LSB (Read)
+const mmu_box1h 0x0420 ; Box Filter 1 HI Byte (Read)
+const mmu_box1l 0x0421 ; Box Filter 1 LO Byte (Read)
+const mmu_box2h 0x0422 ; Box Filter 2 HI Byte (Read)
+const mmu_box2l 0x0423 ; Box Filter 2 LO Byte (Read)
+const mmu_box3h 0x0424 ; Box Filter 3 HI Byte (Read)
+const mmu_box3l 0x0425 ; Box Filter 3 LO Byte (Read)
+const mmu_box4h 0x0426 ; Box Filter 4 HI Byte (Read)
+const mmu_box4l 0x0427 ; Box Filter 4 LO Byte (Read)
+const mmu_boxcr 0x0438 ; Box Filter Control Register (Write)
 
 ; Status Bit Masks, for use with status register
 const sr_cmdrdy  0x01 ; Command Ready Flag
@@ -566,9 +574,9 @@ or A,0x44
 ld (mmu_adc),A
 ld A,ads_rdly
 dly A
-ld A,(mmu_spidh)
+ld A,(mmu_adcdh)
 ld (mmu_xhb),A
-ld A,(mmu_spidl)
+ld A,(mmu_adcdl)
 ld (mmu_xlb),A
 jp int_xmit_rdy
 

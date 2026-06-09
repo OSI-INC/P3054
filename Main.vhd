@@ -32,11 +32,12 @@
 -- just before we initate a new measurement. Add identifier transmission as a
 -- transmit current cost reference.
 
--- V1.7 [05-JUN-26] Move all thermometer timing into the interrupt routine. Make
+-- V1.7 [08-JUN-26] Move all thermometer timing into the interrupt routine. Make
 -- sure CPU is in boost when performing ADC calibration, and insert calibration
 -- delays. Remove stimulus support, except that on stimulus start, the LED turns
--- on, and on stimulus stop, it turns off. We have an eighteen-bit ADC data
--- register and preparing to add eighteen-bit accumulators for each ADC.
+-- on, and on stimulus stop, it turns off. Extend adc data to eighteen bits with
+-- zero to four left shifts at end of readout. Add four eighteen-bit accumulators
+-- for box filters. Code is 14 LUTs and 12 SLICEs too large.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -105,7 +106,6 @@ entity main is
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
 	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal(Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
-	constant mmu_boxcr : integer := 16#10#; -- Box Filter Control Register (Write)
 	constant mmu_i3p   : integer := 16#14#; -- Interrupt Timer Three Period MSB (Write)
 	constant mmu_i4p   : integer := 16#15#; -- Interrupt Timer Four Period MSB (Write)
 	constant mmu_i2c00 : integer := 16#16#; -- i2c SDA=0 SCL=0 (Write)
@@ -115,9 +115,18 @@ entity main is
 	constant mmu_i2cZ0 : integer := 16#1A#; -- i2c SDA=Z SCL=0 (Write)
 	constant mmu_i2cZ1 : integer := 16#1B#; -- i2c SDA=Z SCL=1 (Write)
 	constant mmu_i2cMR : integer := 16#1C#; -- i2C Most Recent Eight Bits (Read)
-	constant mmu_spicr : integer := 16#1D#; -- SPI Control Register (Write)
-	constant mmu_spidh : integer := 16#1E#; -- SPI Data MSB (Read)
-	constant mmu_spidl : integer := 16#1F#; -- SPI Data LSB (Read)
+	constant mmu_adccr : integer := 16#1D#; -- SPI Control Register (Write)
+	constant mmu_adcdh : integer := 16#1E#; -- SPI Data MSB (Read)
+	constant mmu_adcdl : integer := 16#1F#; -- SPI Data LSB (Read)
+	constant mmu_box1h : integer := 16#20#; -- Box Filter 1 HI Byte (Read)
+	constant mmu_box1l : integer := 16#21#; -- Box Filter 1 LO Byte (Read)
+	constant mmu_box2h : integer := 16#22#; -- Box Filter 2 HI Byte (Read)
+	constant mmu_box2l : integer := 16#23#; -- Box Filter 2 LO Byte (Read)
+	constant mmu_box3h : integer := 16#24#; -- Box Filter 3 HI Byte (Read)
+	constant mmu_box3l : integer := 16#25#; -- Box Filter 3 LO Byte (Read)
+	constant mmu_box4h : integer := 16#26#; -- Box Filter 4 HI Byte (Read)
+	constant mmu_box4l : integer := 16#27#; -- Box Filter 4 LO Byte (Read)
+	constant mmu_boxcr : integer := 16#20#; -- Box Filter Control Register (Write)
 end;
 
 architecture behavior of main is
@@ -136,9 +145,9 @@ architecture behavior of main is
 	signal DACTIVE : boolean := true; 
 	
 -- Ring Oscillator, Fast Clock, and Transmit Clock
-	signal TCK, FCK, CK : std_logic;
-	attribute syn_keep of TCK, FCK, CK : signal is true;
-	attribute nomerge of TCK, FCK, CK : signal is ""; 
+	signal TCK, FCK, CK, MCK : std_logic;
+	attribute syn_keep of TCK, FCK, CK, MCK : signal is true;
+	attribute nomerge of TCK, FCK, CK, MCK : signal is ""; 
 
 -- Message Transmission.
 	signal TXI, -- Transmit Initiate
@@ -163,7 +172,7 @@ architecture behavior of main is
 	signal adc_data : std_logic_vector(17 downto 0);
 	signal adc_select : std_logic_vector(1 downto 0);
 	signal adc_shift : std_logic_vector (2 downto 0);
-	signal BOXCK1, BOXCK2, BOXCK3, BOXCK4 : std_logic;
+	signal BOXADD1, BOXADD2, BOXADD3, BOXADD4 : std_logic;
 	signal BOXCLR1, BOXCLR2, BOXCLR3, BOXCLR4 : std_logic;
 	signal box1_data, box2_data, box3_data, box4_data : std_logic_vector(17 downto 0);
 
@@ -301,7 +310,22 @@ begin
 			ENABLE => to_std_logic(ENFCK or KEEPFCK or CPUISRV), 
 			CK => FCK
 		);
-
+		
+-- The Millisecond Clock takes RCK, which is 32.768 kHz and divides
+-- by 32 to get 1.024 kHz, which we use as our millisecond clock.
+	Millisecond_Clock: process (RCK) is
+		variable mcnt : integer range 0 to 31;
+	begin
+		if falling_edge(RCK) then
+			mcnt := mcnt + 1;
+			if (mcnt <= 15) then
+				MCK <= '0';
+			else
+				MCK <= '1';
+			end if;
+		end if;	
+	end process;
+		
 -- User memory and configuration code for the CPU. This RAM will be initialized at
 -- start-up with a configuration file, and so may be read after power up to configure
 -- sensor. The configuration data will begin at address zero.
@@ -359,7 +383,7 @@ begin
 -- (most significant byte at lower address). 
 	MMU : process (all) is
 		variable all_bits : integer range 0 to 4096;
-		variable bottom_bits : integer range 0 to 31;
+		variable bottom_bits : integer range 0 to 63;
 	begin		
 		-- By default, don't write to RAM or PROG memories, nor do we read from
 		-- the command memory FIFO.
@@ -386,7 +410,7 @@ begin
 		-- along with CPU Write. They will be ready before the falling 
 		-- edge of the CPU clock.
 		all_bits := to_integer(unsigned(cpu_addr));
-		bottom_bits := to_integer(unsigned(cpu_addr(5 downto 0)));
+		bottom_bits := to_integer(unsigned(cpu_addr(6 downto 0)));
 		cpu_data_in <= (others => '0');
 		case all_bits is
 			when ram_bot to ram_top => 
@@ -417,8 +441,16 @@ begin
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
-						when mmu_spidh => cpu_data_in <= adc_data(17 downto 10);
-						when mmu_spidl => cpu_data_in <= adc_data(9 downto 2);
+--						when mmu_adcdh => cpu_data_in <= adc_data(17 downto 10);
+--						when mmu_adcdl => cpu_data_in <= adc_data(9 downto 2);
+						when mmu_box1h => cpu_data_in <= box1_data(17 downto 10);
+						when mmu_box1l => cpu_data_in <= box1_data(9 downto 2);
+						when mmu_box2h => cpu_data_in <= box2_data(17 downto 10);
+						when mmu_box2l => cpu_data_in <= box2_data(9 downto 2);
+						when mmu_box3h => cpu_data_in <= box3_data(17 downto 10);
+						when mmu_box3l => cpu_data_in <= box3_data(9 downto 2);
+						when mmu_box4h => cpu_data_in <= box4_data(17 downto 10);
+						when mmu_box4l => cpu_data_in <= box4_data(9 downto 2);
 						when others => null;
 					end case;
 				end if;
@@ -463,6 +495,10 @@ begin
 			SWRST <= false;
 			ADCRD <= false;
 			TXI <= false;
+			BOXCLR1 <= '0';
+			BOXCLR2 <= '0';
+			BOXCLR3 <= '0';
+			BOXCLR4 <= '0';			
 			int_rst <= (others => '0');
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
@@ -516,13 +552,16 @@ begin
 							SCL <= '1';
 							i2c_in(7 downto 1) <= i2c_in(6 downto 0);
 							i2c_in(0) <= SDA;
-						when mmu_spicr => 
+						when mmu_adccr => 
 							adc_select <= cpu_data_out(1 downto 0);
 							ADCRD <= (cpu_data_out(2) = '1');
 							ADCCAL <= (cpu_data_out(3) = '1');
 							adc_shift <= cpu_data_out(6 downto 4);
 						when mmu_boxcr =>
 							BOXCLR1 <= cpu_data_out(0);
+							BOXCLR2 <= cpu_data_out(1);
+							BOXCLR3 <= cpu_data_out(2);
+							BOXCLR4 <= cpu_data_out(3);
 						when others => null;
 					end case;
 				end if;
@@ -631,9 +670,7 @@ begin
 	-- period of each timer by writing to locations in the CPU control space. If we want
 	-- the counter to have period N ticks, we write value N-1 to the period registers.
 	Interrupt_Controller : process (RCK, int_rst) is
-	variable counter_1, counter_2 : integer range 0 to 65535;
 	variable counter_3, counter_4 : integer range 0 to 255;
-	variable mcnt : integer range 0 to 31;
 	begin
 	
 		-- Synchronize the int_rst bits with RCK. Our interrupt counters run off RCK, 
@@ -659,15 +696,6 @@ begin
 		elsif falling_edge(RCK) then
 			int_rst_d(3) <= '0';
 			int_rst_s(3) <= int_rst_d(3);
-		end if;	
-		
-		-- The millisecond timer.
-		if falling_edge(RCK) then
-			if mcnt = 31 then
-				mcnt := 0;
-			else
-				mcnt := mcnt + 1;
-			end if;
 		end if;	
 		
 		-- The interrupt timers run all the time, counting down from their period value
@@ -742,7 +770,7 @@ begin
 		end if;
 	end process;
 
-	-- The ADC Controller starts readoing one of the fourteen-bit ADCs when 
+	-- The ADC Controller starts reading one of the fourteen-bit ADCs when 
 	-- it detects ADC Read (ADCRD) is asserted. The CPU should wait 20 CPU
 	-- cycles for data to be available and 25 CPU cycles for a self-
 	-- calibration to complete. The ADC Controller runs on the Fast Clock (FCK). 
@@ -818,12 +846,14 @@ begin
 				end if;
 			end if;
 			
-			BOXCK1 <= to_std_logic((state = 35) and (adc_select = "00"));
-			BOXCK2 <= to_std_logic((state = 35) and (adc_select = "01"));
-			BOXCK3 <= to_std_logic((state = 35) and (adc_select = "10"));
-			BOXCK4 <= to_std_logic((state = 35) and (adc_select = "11"));
-				
 			state := next_state;
+		end if;
+		
+		if falling_edge(FCK) then
+			BOXADD1 <= to_std_logic((state = 37) and (adc_select = "00"));
+			BOXADD2 <= to_std_logic((state = 37) and (adc_select = "01"));
+			BOXADD3 <= to_std_logic((state = 37) and (adc_select = "10"));
+			BOXADD4 <= to_std_logic((state = 37) and (adc_select = "11"));		
 		end if;
 		
 		NADC1 <= to_std_logic(not (ADCBSY and (adc_select = "00")));
@@ -836,10 +866,31 @@ begin
 	Accumulator1 : entity Accumulator port map (
 		DataA => box1_data,
 		DataB => adc_data,
-		Clock => BOXCK1,
+		Clock => FCK,
 		Reset => BOXCLR1,
-		ClockEn => '1',
+		ClockEn => BOXADD1,
 		Result => box1_data);
+	Accumulator2 : entity Accumulator port map (
+		DataA => box2_data,
+		DataB => adc_data,
+		Clock => FCK,
+		Reset => BOXCLR2,
+		ClockEn => BOXADD2,
+		Result => box2_data);
+	Accumulator3 : entity Accumulator port map (
+		DataA => box3_data,
+		DataB => adc_data,
+		Clock => FCK,
+		Reset => BOXCLR3,
+		ClockEn => BOXADD3,
+		Result => box3_data);
+	Accumulator4 : entity Accumulator port map (
+		DataA => box4_data,
+		DataB => adc_data,
+		Clock => FCK,
+		Reset => BOXCLR4,
+		ClockEn => BOXADD4,
+		Result => box4_data);
 
 -- The Message Transmitter responds to Transmit Initiate (TXI) by turning on the 
 -- radio-frequency oscillator, reading sixteen bits from one of the sensors and
@@ -1347,6 +1398,6 @@ begin
 	
 -- Test Point appears on P1-7.
 --	TP <= df_reg(0);
-	TP <= BOXCK1;
+	TP <= BOXADD1;
 
 end behavior;
