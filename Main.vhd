@@ -36,8 +36,11 @@
 -- sure CPU is in boost when performing ADC calibration, and insert calibration
 -- delays. Remove stimulus support, except that on stimulus start, the LED turns
 -- on, and on stimulus stop, it turns off. Extend adc data to eighteen bits with
--- zero to four left shifts at end of readout. Add four eighteen-bit accumulators
--- for box filters. Code is 14 LUTs and 12 SLICEs too large.
+-- zero to four left shifts at end of readout. 
+
+-- V1.8 [09-JUN-26] Add four eighteen-bit accumulators for box filters. Code is 14 
+-- LUTs and 12 SLICEs too large. Eliminate the X3 and X4 box filters and allow -- direct access to adc_data. Code fits. We have accumulators for X1 and X2.
+
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -441,16 +444,16 @@ begin
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
---						when mmu_adcdh => cpu_data_in <= adc_data(17 downto 10);
---						when mmu_adcdl => cpu_data_in <= adc_data(9 downto 2);
+						when mmu_adcdh => cpu_data_in <= adc_data(17 downto 10);
+						when mmu_adcdl => cpu_data_in <= adc_data(9 downto 2);
 						when mmu_box1h => cpu_data_in <= box1_data(17 downto 10);
 						when mmu_box1l => cpu_data_in <= box1_data(9 downto 2);
 						when mmu_box2h => cpu_data_in <= box2_data(17 downto 10);
 						when mmu_box2l => cpu_data_in <= box2_data(9 downto 2);
-						when mmu_box3h => cpu_data_in <= box3_data(17 downto 10);
-						when mmu_box3l => cpu_data_in <= box3_data(9 downto 2);
-						when mmu_box4h => cpu_data_in <= box4_data(17 downto 10);
-						when mmu_box4l => cpu_data_in <= box4_data(9 downto 2);
+--						when mmu_box3h => cpu_data_in <= box3_data(17 downto 10);
+--						when mmu_box3l => cpu_data_in <= box3_data(9 downto 2);
+--						when mmu_box4h => cpu_data_in <= box4_data(17 downto 10);
+--						when mmu_box4l => cpu_data_in <= box4_data(9 downto 2);
 						when others => null;
 					end case;
 				end if;
