@@ -1351,7 +1351,7 @@ ld (mmu_rfc),A     ; calibration to the firmware.
 
 ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
 ld A,ret_code      ; Put a return opcode at first byte
-ld (IY),A          ; in user program, in case of enable.
+;ld (IY),A          ; in user program, in case of enable.
 
 ; Calibrate the transmit.
 

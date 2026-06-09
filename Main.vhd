@@ -35,7 +35,8 @@
 -- V1.7 [05-JUN-26] Move all thermometer timing into the interrupt routine. Make
 -- sure CPU is in boost when performing ADC calibration, and insert calibration
 -- delays. Remove stimulus support, except that on stimulus start, the LED turns
--- on, and on stimulus stop, it turns off.
+-- on, and on stimulus stop, it turns off. We have an eighteen-bit ADC data
+-- register and preparing to add eighteen-bit accumulators for each ADC.
 
 library ieee;  
 use ieee.std_logic_1164.all;
