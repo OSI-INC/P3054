@@ -4,10 +4,10 @@
 ; This code runs in an OSR8 microprocessor.
 
 ; Configuration Constants.
-const version          1 ; The firmwarwe version.
-const identifier_hi 0xAA ; 0-255, no restrictions
-const identifier_lo 0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
-const frequency_low   14 ; Radio frequency calibration.
+const version        1 ; The firmwarwe version.
+const id_hi       0xAA ; 0-255, no restrictions
+const id_lo       0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
+const f_low         14 ; Radio frequency calibration.
 
 ; CPU Address Map Boundary Constants
 const mvar_bot  0x0000 ; Bottom of Main Variable Space
@@ -18,138 +18,138 @@ const prog_bot  0x0800 ; Bottom of User Program Memory
 const prog_top  0x08FF ; Top of User Program Memory
 
 ; Address Map Locations
-const mmu_irqb  0x0400 ; Interrupt Request Bits (Read)
-const mmu_imsk  0x0401 ; Interrupt Mask Bits (Read/Write)
-const mmu_irst  0x0402 ; Interrupt Reset Bits (Write)
-const mmu_acfg  0x0403 ; Amplifier Configuration (Write)
-const mmu_stc   0x0404 ; Stimulus Current (Write)
-const mmu_rst   0x0405 ; System Reset (Write)
-const mmu_xhb   0x0406 ; Transmit HI Byte (Write)
-const mmu_xlb   0x0407 ; Transmit LO Byte (Write)
-const mmu_xch   0x0408 ; Transmit Channel Number (Write)
-const mmu_xcr   0x0409 ; Transmit Control Register (Write)
-const mmu_rfc   0x040A ; Radio Frequency Calibration (Write)
-const mmu_ccr   0x040B ; Clock Control Register (Write)
-const mmu_dfr   0x040C ; Diagnostic Flag Register (Read/Write)
-const mmu_sr    0x040D ; Status Register (Read)
-const mmu_cmp   0x040E ; Command Memory Portal (Read)
-const mmu_cpr   0x040F ; Command Processor Reset (Write)
-const mmu_i3p   0x0414 ; Interrupt Timer Three Period (Write)
-const mmu_i4p   0x0415 ; Interrupt Timer Four Period (Write)
-const mmu_i2c00 0x0416 ; i2c SDA=0 SCL=0 (Write)
-const mmu_i2c01 0x0417 ; i2c SDA=0 SCL=1 (Write)
-const mmu_i2cA0 0x0418 ; i2c SDA=A SCL=0 (Write)
-const mmu_i2cA1 0x0419 ; i2c SDA=A SCL=1 (Write) 
-const mmu_i2cZ0 0x041A ; i2c SDA=Z SCL=0 (Write)
-const mmu_i2cZ1 0x041B ; i2c SDA=Z SCL=1 (Write) 
-const mmu_i2cMR 0x041C ; i2c Most Recent Eight Bits (Read)
-const mmu_adc   0x041D ; ADC Control Register (Write)
-const mmu_adcdh 0x041E ; ADC Data MSB (Read)
-const mmu_adcdl 0x041F ; ADC Data LSB (Read)
-const mmu_box1h 0x0420 ; Box Filter 1 HI Byte (Read)
-const mmu_box1l 0x0421 ; Box Filter 1 LO Byte (Read)
-const mmu_box2h 0x0422 ; Box Filter 2 HI Byte (Read)
-const mmu_box2l 0x0423 ; Box Filter 2 LO Byte (Read)
-const mmu_box3h 0x0424 ; Box Filter 3 HI Byte (Read)
-const mmu_box3l 0x0425 ; Box Filter 3 LO Byte (Read)
-const mmu_box4h 0x0426 ; Box Filter 4 HI Byte (Read)
-const mmu_box4l 0x0427 ; Box Filter 4 LO Byte (Read)
-const mmu_boxcr 0x0438 ; Box Filter Control Register (Write)
+const mmu_irqb   0x0400 ; Interrupt Request Bits (Read)
+const mmu_imsk   0x0401 ; Interrupt Mask Bits (Read/Write)
+const mmu_irst   0x0402 ; Interrupt Reset Bits (Write)
+const mmu_acfg   0x0403 ; Amplifier Configuration (Write)
+const mmu_stc    0x0404 ; Stimulus Current (Write)
+const mmu_rst    0x0405 ; System Reset (Write)
+const mmu_xhb    0x0406 ; Transmit HI Byte (Write)
+const mmu_xlb    0x0407 ; Transmit LO Byte (Write)
+const mmu_xch    0x0408 ; Transmit Channel Number (Write)
+const mmu_xcr    0x0409 ; Transmit Control Register (Write)
+const mmu_rfc    0x040A ; Radio Frequency Calibration (Write)
+const mmu_ccr    0x040B ; Clock Control Register (Write)
+const mmu_dfr    0x040C ; Diagnostic Flag Register (Read/Write)
+const mmu_sr     0x040D ; Status Register (Read)
+const mmu_cmp    0x040E ; Command Memory Portal (Read)
+const mmu_cpr    0x040F ; Command Processor Reset (Write)
+const mmu_i3p    0x0414 ; Interrupt Timer Three Period (Write)
+const mmu_i4p    0x0415 ; Interrupt Timer Four Period (Write)
+const mmu_i2c00  0x0416 ; i2c SDA=0 SCL=0 (Write)
+const mmu_i2c01  0x0417 ; i2c SDA=0 SCL=1 (Write)
+const mmu_i2cA0  0x0418 ; i2c SDA=A SCL=0 (Write)
+const mmu_i2cA1  0x0419 ; i2c SDA=A SCL=1 (Write) 
+const mmu_i2cZ0  0x041A ; i2c SDA=Z SCL=0 (Write)
+const mmu_i2cZ1  0x041B ; i2c SDA=Z SCL=1 (Write) 
+const mmu_i2cMR  0x041C ; i2c Most Recent Eight Bits (Read)
+const mmu_adc    0x041D ; ADC Control Register (Write)
+const mmu_adcdh  0x041E ; ADC Data HI Byte (Read)
+const mmu_adcdl  0x041F ; ADC Data LO Byte (Read)
+const mmu_box1h  0x0420 ; Box Filter 1 HI Byte (Read)
+const mmu_box1l  0x0421 ; Box Filter 1 LO Byte (Read)
+const mmu_box2h  0x0422 ; Box Filter 2 HI Byte (Read)
+const mmu_box2l  0x0423 ; Box Filter 2 LO Byte (Read)
+const mmu_box3h  0x0424 ; Box Filter 3 HI Byte (Read)
+const mmu_box3l  0x0425 ; Box Filter 3 LO Byte (Read)
+const mmu_box4h  0x0426 ; Box Filter 4 HI Byte (Read)
+const mmu_box4l  0x0427 ; Box Filter 4 LO Byte (Read)
+const mmu_boxcr  0x0428 ; Box Filter Control Register (Write)
 
 ; Status Bit Masks, for use with status register
-const sr_cmdrdy  0x01 ; Command Ready Flag
-const sr_enfck   0x02 ; Enable Fast Clock
-const sr_ledon   0x04 ; LED On
-const sr_txa     0x08 ; Transmit Active Flag
-const sr_cpa     0x10 ; Command Processor Active
-const sr_boost   0x20 ; Boost Flag
-const sr_cme     0x40 ; Command Memory Empty
-const sr_rck     0x80 ; RCK State
+const sr_cmdrdy    0x01 ; Command Ready Flag
+const sr_enfck     0x02 ; Enable Fast Clock
+const sr_ledon     0x04 ; LED On
+const sr_txa       0x08 ; Transmit Active Flag
+const sr_cpa       0x10 ; Command Processor Active
+const sr_boost     0x20 ; Boost Flag
+const sr_cme       0x40 ; Command Memory Empty
+const sr_rck       0x80 ; RCK State
 
 ; Transmit Control Masks, for use with tansmit control register
-const tx_txi     0x01 ; Assert transmit initiate
-const tx_txwp    0x02 ; Assert transmit warm-up
+const tx_txi       0x01 ; Assert transmit initiate
+const tx_txwp      0x02 ; Assert transmit warm-up
 
 ; Auxiliary message types.
-const at_id         1 ; Identification
-const at_ack        2 ; Acknowledgements
-const at_batt       3 ; Battery Measurement
-const at_conf       4 ; Confirmation
-const at_ver        5 ; Version
+const at_id           1 ; Identification
+const at_ack          2 ; Acknowledgements
+const at_batt         3 ; Battery Measurement
+const at_conf         4 ; Confirmation
+const at_ver          5 ; Version
 
 ; Bit Masks
-const bit0_mask  0x01 ; Bit Zero Mask
-const bit1_mask  0x02 ; Bit One Mask
-const bit2_mask  0x04 ; Bit Two Mask
-const bit3_mask  0x08 ; Bit Three Mask
-const bit4_mask  0x10 ; Bit Four Mask
-const bit5_mask  0x20 ; Bit Five Mask
-const bit6_mask  0x40 ; Bit Six Mask
-const bit7_mask  0x80 ; Bit Seven Mask
-const bit0_clr   0xFE ; Bit Zero Clear
-const bit1_clr   0xFD ; Bit One Clear
-const bit2_clr   0xFB ; Bit Two Clear
-const bit3_clr   0xF7 ; Bit Three Clear
-const bit4_clr   0xEF ; Bit Four Clear
-const bit5_clr   0xDF ; Bit Five Clear
-const bit6_clr   0xBF ; Bit Six Clear
-const bit7_clr   0x7F ; Bit Seven Clear
+const bit0_mask    0x01 ; Bit Zero Mask
+const bit1_mask    0x02 ; Bit One Mask
+const bit2_mask    0x04 ; Bit Two Mask
+const bit3_mask    0x08 ; Bit Three Mask
+const bit4_mask    0x10 ; Bit Four Mask
+const bit5_mask    0x20 ; Bit Five Mask
+const bit6_mask    0x40 ; Bit Six Mask
+const bit7_mask    0x80 ; Bit Seven Mask
+const bit0_clr     0xFE ; Bit Zero Clear
+const bit1_clr     0xFD ; Bit One Clear
+const bit2_clr     0xFB ; Bit Two Clear
+const bit3_clr     0xF7 ; Bit Three Clear
+const bit4_clr     0xEF ; Bit Four Clear
+const bit5_clr     0xDF ; Bit Five Clear
+const bit6_clr     0xBF ; Bit Six Clear
+const bit7_clr     0x7F ; Bit Seven Clear
 
 ; Timing Constants.
-const min_tcf       72  ; Minimum TCK periods per half RCK period
-const tx_delay      40  ; Wait time for sample transmission, TCK periods
-const wp_delay     255  ; Warm-up delay for auxiliary messages
-const num_vars      64  ; Number of vars to clear at start
-const initial_tcd   15  ; Max possible value of TCK divisor
-const uprog_tick   163  ; User program interrupt period minus one
-const id_delay      33  ; To pad id delay to 50 TCK periods
-const min_int_p     25  ; Minimum transmit period
-const ads_rdly      16  ; Clock cycles for ADC readout
-const ads_cdly      22  ; Clock cycles for ADC self-calibration
-const tmp_period     8  ; Temperature update period in quarter-seconds
+const min_tcf        72 ; Minimum TCK periods per half RCK period
+const tx_delay       40 ; Wait time for sample transmission, TCK periods
+const wp_delay      255 ; Warm-up delay for auxiliary messages
+const num_vars       64 ; Number of vars to clear at start
+const initial_tcd    15 ; Max possible value of TCK divisor
+const uprog_tick    163 ; User program interrupt period minus one
+const id_delay       33 ; To pad id delay to 50 TCK periods
+const min_int_p      25 ; Minimum transmit period
+const ads_rdly       16 ; Clock cycles for ADC readout
+const ads_cdly       22 ; Clock cycles for ADC self-calibration
+const tmp_period      8 ; Temperature update period in quarter-seconds
 
 ; Stimulus Control Variables
-const Sack_key    0x000A ; Acknowledgement key
+const Sack_key   0x000A ; Acknowledgement key
 
 ; Command Decode Variables
-const ccmdb       0x0016 ; Copy of Command Byte
+const ccmdb      0x0016 ; Copy of Command Byte
 
 ; User Program Control Variables
-const UPrun       0x0022 ; Running
-const UPinit      0x0023 ; Initialize
+const UPrun      0x0022 ; Running
+const UPinit     0x0023 ; Initialize
 
 ; Transmission Control Variables
-const xmit_p      0x0028 ; Transmit Period
-const xmit_ch     0x0029 ; Telemetry Channel Number
+const xmit_p     0x0028 ; Transmit Period
+const xmit_ch    0x0029 ; Telemetry Channel Number
 
 ; Sensor Control Variables
 const tmp_chb    0x0030 ; Temperature counter, HI
 const tmp_clb    0x0031 ; Temperature counter, LO
 
 ; Program Varables
-const temperature_hi   0x0040 ; Saved temperature measurement, HI
-const temperature_lo   0x0041 ; Saved temperature measurement, LO
+const temp_hi    0x0040 ; Saved temperature measurement, HI
+const temp_lo    0x0041 ; Saved temperature measurement, LO
 
 ; User Program Constants
-const ret_code      0x0A ; Return from subroutine instruction
+const ret_code     0x0A ; Return from subroutine instruction
 
 ; Operation Codes
-const op_stop        0 ; 0 operands
-const op_start       1 ; 8 operands
-const op_xon         2 ; 2 operand
-const op_xoff        3 ; 0 operands
-const op_batt        4 ; 0 operands
-const op_id          5 ; 0 operands
-const op_pgld        6 ; 1 operand, variable data
-const op_pgon        7 ; 0 operands
-const op_pgoff       8 ; 0 operands
-const op_pgrst       9 ; 0 operands
-const op_shdn       10 ; 0 operands
-const op_ver        11 ; 0 operands
+const op_stop         0 ; 0 operands
+const op_start        1 ; 8 operands
+const op_xon          2 ; 2 operand
+const op_xoff         3 ; 0 operands
+const op_batt         4 ; 0 operands
+const op_id           5 ; 0 operands
+const op_pgld         6 ; 1 operand, variable data
+const op_pgon         7 ; 0 operands
+const op_pgoff        8 ; 0 operands
+const op_pgrst        9 ; 0 operands
+const op_shdn        10 ; 0 operands
+const op_ver         11 ; 0 operands
 
 ; Synchronization.
-const synch_nostim  32 ; 
-const synch_stim    96 ;
+const synch_nostim   32 ; 
+const synch_stim     96 ;
 
 ; Non-Volatile Memory Constants. The M24C16 EEPROM provides 2K x 8 
 ; of NVM with an I2C interface. We can read 1-2048 bytes in one
@@ -157,18 +157,18 @@ const synch_stim    96 ;
 ; address consists only of four bits, the lower three bits of the
 ; seven-biit I2C address are used to select one of eight 256-byte
 ; blocks within the EEPROM.
-const nvm_addr       0x50 ; I2C address, top four bits only.
-const nvm_hmask      0x0F ; 
+const nvm_addr     0x50 ; I2C address, top nibble
+const nvm_hmask    0x0F ; Mask for bottom nibble address
 
 ; TMP117 Temperature Sensor Constants. The tmp provides
 ; sixteen-bit read and write registers to the I2C bus.
-const tmp_addr   0x49 ; I2C address
-const tmp_treg   0x00 ; Temperature register
-const tmp_creg   0x01 ; Configuration register
-const tmp_oneh   0x0C ; For Configuration, one-shot measurement, MSB
-const tmp_onel   0x00 ; For Configuration, one-shot measurement, LSB
-const tmp_fasth  0x00 ; For Configuration, fast measurement, MSB
-const tmp_fastl  0x00 ; For Configuration, fast measurement, LSB
+const tmp_addr     0x49 ; I2C address
+const tmp_treg     0x00 ; Temperature register
+const tmp_creg     0x01 ; Configuration register
+const tmp_oneh     0x0C ; One-shot measurement, MSB
+const tmp_onel     0x00 ; One-shot measurement, LSB
+const tmp_fasth    0x00 ; Fast measurement, MSB
+const tmp_fastl    0x00 ; Fast measurement, LSB
 
 ; BMA423 Accelerometer Addresses and Configuration Values. We give
 ; the internal addresses of registers. When the address is always 
@@ -285,10 +285,10 @@ call i2c_rd16
 push C
 pop A
 add A,off_16bs   
-ld (temperature_hi),A
+ld (temp_hi),A
 push B
 pop A
-ld (temperature_lo),A
+ld (temp_lo),A
 
 ; Initiate conversion.
 
@@ -532,9 +532,9 @@ jp int_xmit_id
 ; update the temperature measurement and reset the counter.
 
 int_xmit_temp:
-ld A,(temperature_hi)
+ld A,(temp_hi)
 ld (mmu_xhb),A
-ld A,(temperature_lo)
+ld A,(temp_lo)
 ld (mmu_xlb),A
 ld A,(tmp_clb)
 sub A,1
@@ -574,10 +574,24 @@ or A,0x44
 ld (mmu_adc),A
 ld A,ads_rdly
 dly A
-ld A,(mmu_adcdh)
+ld IX,mmu_box1h
+ld A,(xmit_ch)
+dec A
+and A,0x03
+int_box_loop:
+dec A
+jp np,int_box_end
+inc IX
+inc IX
+jp int_box_loop
+int_box_end:
+ld A,(IX)
 ld (mmu_xhb),A
-ld A,(mmu_adcdl)
+inc IX
+ld A,(IX)
 ld (mmu_xlb),A
+ld A,0x0F
+ld (mmu_boxcr),A
 jp int_xmit_rdy
 
 ; Read two bytes from the non-volatile memory.
@@ -620,9 +634,9 @@ jp int_xmit_rdy
 ; Transmit the device identifier.
 
 int_xmit_id:
-ld A,identifier_hi 
+ld A,id_hi 
 ld (mmu_xhb),A
-ld A,identifier_lo 
+ld A,id_lo 
 ld (mmu_xlb),A
 jp int_xmit_rdy
 
@@ -696,14 +710,14 @@ dly A               ; transmit.
 ; with a nibble containing the auxiliary type, which has been 
 ; passed in A. The second byte consists of the data in register B.
 
-ld A,identifier_lo  ; Load LO byte of identifier into A,
+ld A,id_lo  ; Load LO byte of identifier into A,
 or A,0x0F           ; set lower four bits to one
 ld (mmu_xch),A      ; and write the transmit channel register.
 push B              ; Transfer the data byte from
 pop A               ; B into A
 ld (mmu_xlb),A      ; and write to transmit LO register.
 pop B               ; Pop auxiliary type into B.
-ld A,identifier_lo  ; Load LO byte of identifier again.
+ld A,id_lo  ; Load LO byte of identifier again.
 sla A               ; Shift A 
 sla A               ; left
 sla A               ; four
@@ -722,12 +736,12 @@ dly A               ; the transmit completes.
 ; type of a confirmation is always at_conf and the data byte is always
 ; the high byte of the device identifier.
 
-ld A,identifier_hi  ; Load HI byte id identifier into A and
+ld A,id_hi  ; Load HI byte id identifier into A and
 ld (mmu_xlb),A      ; write to transmit LO register.
-ld A,identifier_lo  ; Load LO byte of identifier into A,
+ld A,id_lo  ; Load LO byte of identifier into A,
 or A,0x0F           ; set lower four bits to one and
 ld (mmu_xch),A      ; write to the transmit channel register.
-ld A,identifier_lo  ; Load LO byte into A again,
+ld A,id_lo  ; Load LO byte into A again,
 sla A               ; shift A 
 sla A               ; left
 sla A               ; four
@@ -829,10 +843,10 @@ push L
 ; collide only if their IDs are consecutive, and we will wait
 ; only 0.7 s. 
 
-ld A,identifier_hi
+ld A,id_hi
 push A
 pop H
-ld A,identifier_lo
+ld A,id_lo
 push A
 pop L
 identify_delay:
@@ -852,7 +866,7 @@ jp nc,identify_delay
 
 ; Prepare A and B for call to xmit_annc.
 
-ld A,identifier_hi  ; Load HI byte id identifier 
+ld A,id_hi  ; Load HI byte id identifier 
 push A              ; into A and
 pop B               ; store in B.
 ld A,at_id          ; Load the identify type code into A.
@@ -986,10 +1000,10 @@ jp nz,cmd_done
 
 ; Load the device id into HL and the command target id into DE.
 
-ld A,identifier_hi
+ld A,id_hi
 push A
 pop H
-ld A,identifier_lo
+ld A,id_lo
 push A
 pop L
 call get_cmd_byte
@@ -1338,7 +1352,7 @@ jp nz,main_var_init_loop
 
 ; Initialize certain variables to values other than zero.
 
-ld A,identifier_lo ; Set the primary channel number to the
+ld A,id_lo         ; Set the primary channel number to the
 ld (xmit_ch),A     ; low byte of the device identifier.
 
 ; Configure control space registers.
@@ -1352,7 +1366,7 @@ ld (mmu_i4p),A     ; generation.
 ld (mmu_imsk),A    ; Mask all interrupts.
 ld A,0xFF          ; Load A with ones
 ld (mmu_irst),A    ; and reset all interrupts.
-ld A,frequency_low ; Write the radio frequency
+ld A,f_low         ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
 
 ; Configure user programming.

@@ -1,6 +1,6 @@
 -- Intraperitoneal Transmitter (IPT, A3054) Firmware, Top-Level Unit
 
--- V1.1 [25-MAR-26] Based upon P3041 V3.6 of 23-FEB-26. Set up inputs and outputs.
+-- V1.1 [25-MAR-26] Based upon P3041 V3.6. Set up inputs and outputs.
 
 -- V1.2 [01-APR-26] Bring in the P3051 ring oscillator implementation: a big ring
 -- with no divider creates FCK. Remove the Clock Calibrator process and hard-wire
@@ -40,6 +40,10 @@
 
 -- V1.8 [09-JUN-26] Add four eighteen-bit accumulators for box filters. Code is 14 
 -- LUTs and 12 SLICEs too large. Eliminate the X3 and X4 box filters and allow -- direct access to adc_data. Code fits. We have accumulators for X1 and X2.
+-- Eliminate CRC check of command. We plan to implement later in software. Convert 
+-- the command initiate and terminate processes to using the millisecond clock with
+-- synchronous reset, which reduces the number of registers used for counting. For
+-- now, eliminate the accululator for X4 so the code will fit, fully functiona.
 
 
 library ieee;  
@@ -109,8 +113,8 @@ entity main is
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
 	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal(Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
-	constant mmu_i3p   : integer := 16#14#; -- Interrupt Timer Three Period MSB (Write)
-	constant mmu_i4p   : integer := 16#15#; -- Interrupt Timer Four Period MSB (Write)
+	constant mmu_i3p   : integer := 16#14#; -- Interrupt Timer Three Period (Write)
+	constant mmu_i4p   : integer := 16#15#; -- Interrupt Timer Four Period (Write)
 	constant mmu_i2c00 : integer := 16#16#; -- i2c SDA=0 SCL=0 (Write)
 	constant mmu_i2c01 : integer := 16#17#; -- i2c SDA=0 SCL=1 (Write)
 	constant mmu_i2cA0 : integer := 16#18#; -- i2c SDA=A SCL=0 (Write)
@@ -118,9 +122,9 @@ entity main is
 	constant mmu_i2cZ0 : integer := 16#1A#; -- i2c SDA=Z SCL=0 (Write)
 	constant mmu_i2cZ1 : integer := 16#1B#; -- i2c SDA=Z SCL=1 (Write)
 	constant mmu_i2cMR : integer := 16#1C#; -- i2C Most Recent Eight Bits (Read)
-	constant mmu_adccr : integer := 16#1D#; -- SPI Control Register (Write)
-	constant mmu_adcdh : integer := 16#1E#; -- SPI Data MSB (Read)
-	constant mmu_adcdl : integer := 16#1F#; -- SPI Data LSB (Read)
+	constant mmu_adccr : integer := 16#1D#; -- ADC Control Register (Write)
+	constant mmu_adcdh : integer := 16#1E#; -- ADC Data HI Byte (Read)
+	constant mmu_adcdl : integer := 16#1F#; -- ADC Data LO Byte (Read)
 	constant mmu_box1h : integer := 16#20#; -- Box Filter 1 HI Byte (Read)
 	constant mmu_box1l : integer := 16#21#; -- Box Filter 1 LO Byte (Read)
 	constant mmu_box2h : integer := 16#22#; -- Box Filter 2 HI Byte (Read)
@@ -129,7 +133,7 @@ entity main is
 	constant mmu_box3l : integer := 16#25#; -- Box Filter 3 LO Byte (Read)
 	constant mmu_box4h : integer := 16#26#; -- Box Filter 4 HI Byte (Read)
 	constant mmu_box4l : integer := 16#27#; -- Box Filter 4 LO Byte (Read)
-	constant mmu_boxcr : integer := 16#20#; -- Box Filter Control Register (Write)
+	constant mmu_boxcr : integer := 16#28#; -- Box Filter Control Register (Write)
 end;
 
 architecture behavior of main is
@@ -152,7 +156,7 @@ architecture behavior of main is
 	attribute syn_keep of TCK, FCK, CK, MCK : signal is true;
 	attribute nomerge of TCK, FCK, CK, MCK : signal is ""; 
 
--- Message Transmission.
+-- Message Transmission. The syn_keep and nomerge reduce code size slightly.
 	signal TXI, -- Transmit Initiate
 		TXWP, -- Transmit Warmup
 		TXA, -- Transmit Active
@@ -165,7 +169,7 @@ architecture behavior of main is
 	signal tx_channel : integer range 0 to 255 := tx_channel_default;
 	signal frequency_low : integer range 0 to 31 := default_frequency_low;
 		
--- Sensor Controller
+-- Sensor Controller. The syn_keep and nomerge reduce code size slightly.
 	signal ADCCAL, -- Calibrate the Selected ADC
 		ADCRD, -- Initiate ADC Read
 		ADCBSY -- ADC Busy
@@ -182,7 +186,7 @@ architecture behavior of main is
 -- Sensor Readout
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
 
--- Clock Control
+-- Clock Control. The syn_keep and nomerge reduce code size slightly.
 	signal ENFCK : boolean; -- Enable Fast Clock
 	signal BOOST : boolean; -- Boost CPU Clock
 	attribute syn_keep of BOOST : signal is true;
@@ -206,7 +210,7 @@ architecture behavior of main is
 	signal ram_out, ram_in : std_logic_vector(7 downto 0); -- RAM Data In and Out
 	signal RAMWR : std_logic; -- Command Memory Write
 	
--- Central Processing Unit Signals
+-- Central Processing Unit Signals. The syn_keep and nomerge reduce code size slightly.
 	signal cpu_data_out, cpu_data_in : std_logic_vector(7 downto 0); 
 	signal cpu_addr : std_logic_vector(cpu_addr_len-1 downto 0);
 	attribute syn_keep of cpu_addr : signal is true;
@@ -231,7 +235,6 @@ architecture behavior of main is
 		RCMD, -- Receive Command
 		RBI, -- Receive Command Byte Initiate
 		RBD, -- Receive Command Byte Done
-		CRCERR, -- Cyclic Redundancy Checksum Error
 		BYTERR, -- Byte Error
 		BYTS, -- Command Byte Strobe
 		CBS -- Command Bit Strobe (CBS)
@@ -444,14 +447,14 @@ begin
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
-						when mmu_adcdh => cpu_data_in <= adc_data(17 downto 10);
-						when mmu_adcdl => cpu_data_in <= adc_data(9 downto 2);
+--						when mmu_adcdh => cpu_data_in <= adc_data(17 downto 10);
+--						when mmu_adcdl => cpu_data_in <= adc_data(9 downto 2);
 						when mmu_box1h => cpu_data_in <= box1_data(17 downto 10);
 						when mmu_box1l => cpu_data_in <= box1_data(9 downto 2);
 						when mmu_box2h => cpu_data_in <= box2_data(17 downto 10);
 						when mmu_box2l => cpu_data_in <= box2_data(9 downto 2);
---						when mmu_box3h => cpu_data_in <= box3_data(17 downto 10);
---						when mmu_box3l => cpu_data_in <= box3_data(9 downto 2);
+						when mmu_box3h => cpu_data_in <= box3_data(17 downto 10);
+						when mmu_box3l => cpu_data_in <= box3_data(9 downto 2);
 --						when mmu_box4h => cpu_data_in <= box4_data(17 downto 10);
 --						when mmu_box4l => cpu_data_in <= box4_data(9 downto 2);
 						when others => null;
@@ -1050,22 +1053,18 @@ begin
 -- We detect a long enough burst of command power to initiate
 -- command reception, and set the ICMD signal.
 	Initiate_Command: process (RESET, RCK) is 
-		constant endcount : integer := 63;
-		variable counter : integer range 0 to endcount;
+		constant endcount : integer := 2;
+		variable counter : integer range 0 to 3;
 	begin
-		if RESET = '1' then
-			counter := endcount;
-		elsif rising_edge(RCK) then
-			if RPS then 
-				if (counter = endcount) then 
-					counter := endcount;
-					ICMD <= true;
-				else 
-					counter := counter + 1;
-					ICMD <= false;
-				end if;
-			else
-				counter := 0;
+		if (not RPS) then
+			ICMD <= false;
+			counter := 0;
+		elsif rising_edge(MCK) then
+			if (counter = endcount) then 
+				counter := endcount;
+				ICMD <= true;
+			else 
+				counter := counter + 1;
 				ICMD <= false;
 			end if;
 		end if;
@@ -1074,23 +1073,19 @@ begin
 -- We detect a long enough period without command power to 
 -- terminate command reception, and set the TCMD signal.
 	Terminate_Command: process (RESET, RCK) is 
-		constant endcount : integer := 255;
-		variable counter : integer range 0 to endcount;
+		constant endcount : integer := 7;
+		variable counter : integer range 0 to 7;
 	begin
-		if RESET = '1' then
-			counter := endcount;
-		elsif rising_edge(RCK) then
-			if not RPS then 
-				if (counter = endcount) then 
-					counter := endcount;
-					TCMD <= true;
-				else 
-					counter := counter + 1;
-					TCMD <= false;
-				end if;
-			else
-				counter := 0;
-				TCMD <=  false;
+		if RPS then
+			counter := 0;
+			TCMD <= false;
+		elsif rising_edge(MCK) then
+			if (counter = endcount) then 
+				counter := endcount;
+				TCMD <= true;
+			else 
+				counter := counter + 1;
+				TCMD <= false;
 			end if;
 		end if;
 	end process;
@@ -1233,49 +1228,6 @@ begin
 		end if;
 	end process;
 
--- This process runs all the bits of a command through a sixteen-bit linear 
--- feedback shift register, with local name "crc" for "cyclic redundancy check". 
--- We preset crc to all ones. The final sixteen bits of every command are chosen 
--- so that they reset the crc register to all zeros. If crc is not zero at the 
--- end of a command, there was some error during reception. We use the Command
--- Bit Strobe (CBS) signal to clock crc, because CBS is asserted only when a command 
--- data bit is received, not when we receive a start or stop bit.
-	Error_Check : process (RESET, RCK) is
-		variable crc, next_crc : std_logic_vector(15 downto 0);
-	begin
-		if RESET = '1' then
-			crc := (others => '1');
-		elsif rising_edge(RCK) then
-			if ICMD then
-				-- When a new command transmission starts, we preload the cyclic redundancy
-				-- check register to all ones.
-				crc := (others => '1');
-			else
-				-- We use Command Bit Strobe (CBS) to clock each command bit into the CRC.
-				-- The transmitter calculates the checksum with zeros in the last
-				-- sixteen bits, reverses the order of these checksum bits, and sends
-				-- them as the last two bytes of the actual transmission, instead of the
-				-- zeros it used when it calculated its own checksum. These last sixteen
-				-- bits, thus obtained, will reset the receiver CRC to zero, provided there
-				-- has been no corruption of the data on the way.
-				if CBS then
-					for i in 0 to 9 loop next_crc(i) := crc(i+1); end loop;
-					next_crc(10) := crc(11) xor crc(0);
-					next_crc(11) := crc(12);
-					next_crc(12) := crc(13) xor crc(0);
-					next_crc(13) := crc(14) xor crc(0);
-					next_crc(14) := crc(15);
-					next_crc(15) := to_std_logic(RPS) xor crc(0);	
-					crc := next_crc;
-				end if;		
-			end if;
-		end if;
-		
-		-- The CRCERR flag tells us when the CRC is not zero. It will be zero when it
-		-- has been reset by the two bytes of a correct checksum.
-		CRCERR <= (crc /= "0000000000000000");
-	end process;
-
 -- Command Memory
 	Command_Memory : entity CMD_FIFO port map (
 		Reset => CMRST, 
@@ -1306,7 +1258,7 @@ begin
 		constant check_cmd_s : integer := 4;
 		constant complete_s : integer := 5;
 		
-		-- Variables for the Command Processor
+		-- Variables and constants for the Command Processor
 		variable state, next_state : integer range 0 to 7;
 		
 	begin
@@ -1374,7 +1326,7 @@ begin
 			-- check (CRCERR) or an error in the structure of a command byte (BYTERR). 
 			-- If either is asserted, we go back to idle.
 			if (state = check_cmd_s) then
-				if CRCERR or BYTERR then 
+				if BYTERR then 
 					next_state := idle_s;
 				else 
 					next_state := complete_s;
@@ -1400,7 +1352,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
---	TP <= df_reg(0);
-	TP <= BOXADD1;
+	TP <= BOXCLR2;
 
 end behavior;
