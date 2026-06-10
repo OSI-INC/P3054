@@ -50,7 +50,9 @@
 -- 0x07FF. In first 1 KByte we have 256 bytes each for control space, stack, user
 -- variables and main program variables. The control space is now shadowed by
 -- the RAM, so we eliminate some read-back code from the MMU. Restore access to 
--- raw ADC data.
+-- raw ADC data. Sampling always at 1024 SPS, box filter provides 128, 256, 512,
+-- and 1024 SPS at request of Stimulator, any request unequal to these defaulting
+-- to 1024 SPS. Tested for AC, believe now working for DC too. 
 
 library ieee;  
 use ieee.std_logic_1164.all;

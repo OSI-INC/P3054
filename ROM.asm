@@ -558,7 +558,7 @@ jp nz,int_xmit_done
 ld IX,mmu_box1h
 ld A,(xmit_ch)
 dec A
-and A,0x07
+and A,0x03
 int_box_loop:
 dec A
 jp np,int_box_end
