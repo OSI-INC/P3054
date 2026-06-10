@@ -57,16 +57,19 @@ const mmu_box4l  0x0027 ; Box Filter 4 LO Byte (Read)
 const mmu_boxcr  0x0028 ; Box Filter Control Register (Write)
 
 ; Main Program Variables
-const Sack_key   0x030A ; Acknowledgement key
-const ccmdb      0x0316 ; Copy of Command Byte
+const Sack_key   0x0300 ; Acknowledgement key
+const ccmdb      0x0301 ; Copy of Command Byte
+const xmit_ch    0x0303 ; Telemetry Channel Number
+const tmp_chb    0x0304 ; Temperature counter, HI
+const tmp_clb    0x0305 ; Temperature counter, LO
+const temp_hi    0x0306 ; Saved temperature measurement, HI
+const temp_lo    0x0307 ; Saved temperature measurement, LO
+const box_cnt    0x0308 ; Box filter counter for accumulation
+const box_p      0x0309 ; Box filter width
+const box_s      0x030A ; Box filter pre-load shift mask
+const adc_cmd    0x030B ; ADC command
 const UPrun      0x0322 ; Running
 const UPinit     0x0323 ; Initialize
-const xmit_p     0x0328 ; Transmit Period
-const xmit_ch    0x0329 ; Telemetry Channel Number
-const tmp_chb    0x0330 ; Temperature counter, HI
-const tmp_clb    0x0331 ; Temperature counter, LO
-const temp_hi    0x0340 ; Saved temperature measurement, HI
-const temp_lo    0x0341 ; Saved temperature measurement, LO
 
 ; Status Bit Masks, for use with status register
 const sr_cmdrdy    0x01 ; Command Ready Flag
@@ -115,7 +118,7 @@ const wp_delay      255 ; Warm-up delay for auxiliary messages in TCK periods
 const num_vars       64 ; Number of variable bytes to clear at start
 const uprog_tick    163 ; User program interrupt period minus one
 const id_delay       33 ; Identification spacing in TCK periods
-const min_int_p       7 ; Minimum transmit period in RCK periods
+const sample_p       31 ; Sample period in RCK periods
 const ads_rdly       16 ; Clock cycles for ADC readout
 const ads_cdly       22 ; Clock cycles for ADC self-calibration
 const tmp_period      8 ; Temperature update period in 1/4 s
@@ -544,28 +547,18 @@ jp int_xmit_rdy
 ; ADCs 1-4 for channels 5-8.
 
 int_xmit_adc:
-ld A,(xmit_ch)
-dec A
-and A,bit2_mask
-srl A
-srl A
-push A
-pop B
-ld A,(mmu_acfg)
-and A,bit0_clr
-or A,B
-ld (mmu_acfg),A
-ld A,(xmit_ch)
-dec A
-and A,0x03
-or A,0x44
+ld A,(adc_cmd)
 ld (mmu_adc),A
 ld A,ads_rdly
 dly A
+ld A,(box_cnt)
+dec A
+ld (box_cnt),A
+jp nz,int_xmit_done
 ld IX,mmu_box1h
 ld A,(xmit_ch)
 dec A
-and A,0x03
+and A,0x07
 int_box_loop:
 dec A
 jp np,int_box_end
@@ -580,6 +573,8 @@ ld A,(IX)
 ld (mmu_xlb),A
 ld A,0x0F
 ld (mmu_boxcr),A
+ld A,(box_p)
+ld (box_cnt),A
 jp int_xmit_rdy
 
 ; Read two bytes from the non-volatile memory.
@@ -1126,10 +1121,66 @@ jp nz,check_xon_end
 call get_cmd_byte    ; Read the telemetry channel number
 ld (xmit_ch),A       ; and save in memory.
 call get_cmd_byte    ; Read xmit period minus one. 
-sub A,min_int_p      ; Subtract the minimum period.
-jp np,check_xon_end  ; If result negative, we ignore.
-ld A,(ccmdb)         ; Load the period again,
-ld (xmit_p),A        ; save to memory as a flag
+
+check_xon_255:
+ld A,(ccmdb)
+sub A,255
+jp nz,check_xon_127
+ld A,8
+ld (box_p),A 
+ld A,0x14
+ld (box_s),A
+jp check_xon_go
+
+check_xon_127:
+ld A,(ccmdb)
+sub A,127
+jp nz,check_xon_63
+ld A,4
+ld (box_p),A 
+ld A,0x24
+ld (box_s),A
+jp check_xon_go
+
+check_xon_63:
+ld A,(ccmdb)
+sub A,63
+jp nz,check_xon_31
+ld A,2
+ld (box_p),A 
+ld A,0x34
+ld (box_s),A
+jp check_xon_go
+
+check_xon_31:
+ld A,1
+ld (box_p),A 
+ld A,0x44
+ld (box_s),A
+
+check_xon_go:
+ld A,(xmit_ch)
+dec A
+and A,bit2_mask
+srl A
+srl A
+push A
+pop B
+ld A,(mmu_acfg)
+and A,bit0_clr
+or A,B
+ld (mmu_acfg),A
+ld A,(xmit_ch)
+dec A
+and A,0x03
+push A
+pop B
+ld A,(box_s)
+or A,B
+ld (adc_cmd),A
+ld A,(box_p)         ; Load the box width
+ld (box_cnt),A       ; and write to the box counter.
+ld A,sample_p        ; Load the sample period,
 ld (mmu_i4p),A       ; write interrupt timer four.
 ld A,(mmu_imsk)      ; Enable interrupt timer four
 or A,bit3_mask       ; with bit three of interrupt
@@ -1143,9 +1194,8 @@ check_xoff:
 ld A,(ccmdb)
 sub A,op_xoff
 jp nz,check_xoff_end
-ld A,0               ; Set the xmit period to zero
-ld (xmit_p),A        ; in memory, which acts as a flag.
-ld (mmu_i4p),A       ; Disable timer interrupt.
+ld A,0               ; Disable
+ld (mmu_i4p),A       ; timer interrupt.
 ld A,(mmu_imsk)      ; Mask timer interrupt
 and A,bit3_clr       ; with bit three of
 ld (mmu_imsk),A      ; interrupt mask.
@@ -1398,6 +1448,7 @@ ld (mmu_dfr),A     ; Set the diagnostic flags to zero.
 ld (mmu_i3p),A     ; their interrupt
 ld (mmu_i4p),A     ; generation.
 ld (mmu_imsk),A    ; Mask all interrupts.
+ld (box_cnt),A     ; Clear the box counter.
 ld A,0xFF          ; Load A with ones
 ld (mmu_irst),A    ; and reset all interrupts.
 ld A,f_low         ; Write the radio frequency

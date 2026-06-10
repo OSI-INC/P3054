@@ -45,7 +45,12 @@
 -- synchronous reset, which reduces the number of registers used for counting. 
 -- Eliminate access to raw ADC data.
 
--- V1.9 [10-JUN-26] 
+-- V1.9 [10-JUN-26] Reduce the CPU address from eleven to ten bits. Compress the
+-- memory mapy. Restrict user code to 1 KByte and place in CPU range 0x0400 to
+-- 0x07FF. In first 1 KByte we have 256 bytes each for control space, stack, user
+-- variables and main program variables. The control space is now shadowed by
+-- the RAM, so we eliminate some read-back code from the MMU. Restore access to 
+-- raw ADC data.
 
 library ieee;  
 use ieee.std_logic_1164.all;
