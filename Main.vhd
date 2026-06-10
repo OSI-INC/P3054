@@ -42,8 +42,8 @@
 -- LUTs and 12 SLICEs too large. Eliminate the X3 and X4 box filters and allow -- direct access to adc_data. Code fits. We have accumulators for X1 and X2.
 -- Eliminate CRC check of command. We plan to implement later in software. Convert 
 -- the command initiate and terminate processes to using the millisecond clock with
--- synchronous reset, which reduces the number of registers used for counting. For
--- now, eliminate the accululator for X4 so the code will fit, fully functiona.
+-- synchronous reset, which reduces the number of registers used for counting. 
+-- Eliminate access to raw ADC data.
 
 
 library ieee;  
@@ -101,7 +101,7 @@ entity main is
 	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Read/Write)
 	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write)
 	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Read/Write)
-	constant mmu_stc   : integer := 16#04#; -- Stimulus Current (Write)
+	constant mmu_led   : integer := 16#04#; -- Stimulus Current (Write)
 	constant mmu_rst   : integer := 16#05#; -- System Reset (Write)
 	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write)
 	constant mmu_xlb   : integer := 16#07#; -- Transmit LO Byte (Write)
@@ -403,11 +403,10 @@ begin
 		ram_addr <= cpu_addr(ram_addr_len-1 downto 0);
 		
 		-- We can write to the user program memory with the CPU. We restrict 
-		-- the program memory write address to the upper two kilobytes of the 
-		-- program memory, making it impossible to write to the lower two 
-		-- kilobytes. On no account do we want the user program to be able to 
-		-- over-write the main program, which is loaded from the logic chip's 
-		-- conguration EEPROM on power-up.
+		-- the program memory write address to the portion of the ROM that
+		-- is reserved for user programs. On no account do we want the user 
+		-- program to be able to over-write the main program, which is loaded 
+		-- from the logic chip's conguration EEPROM on power-up.
 		prog_in <= cpu_data_out;
 		prog_in_addr(11) <= '1';
 		prog_in_addr(10 downto 0) <= cpu_addr(10 downto 0);
@@ -455,8 +454,8 @@ begin
 						when mmu_box2l => cpu_data_in <= box2_data(9 downto 2);
 						when mmu_box3h => cpu_data_in <= box3_data(17 downto 10);
 						when mmu_box3l => cpu_data_in <= box3_data(9 downto 2);
---						when mmu_box4h => cpu_data_in <= box4_data(17 downto 10);
---						when mmu_box4l => cpu_data_in <= box4_data(9 downto 2);
+						when mmu_box4h => cpu_data_in <= box4_data(17 downto 10);
+						when mmu_box4l => cpu_data_in <= box4_data(9 downto 2);
 						when others => null;
 					end case;
 				end if;
@@ -521,7 +520,7 @@ begin
 						when mmu_rfc  => frequency_low <= to_integer(unsigned(cpu_data_out));
 						when mmu_imsk => int_mask <= cpu_data_out;
 						when mmu_irst => int_rst <= cpu_data_out;
-						when mmu_stc  => LED <= cpu_data_out(0);
+						when mmu_led  => LED <= cpu_data_out(0);
 						when mmu_rst  => SWRST <= (cpu_data_out(0) = '1');
 						when mmu_ccr  => 
 							ENFCK <= (cpu_data_out(0) = '1');
@@ -1352,6 +1351,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= BOXCLR2;
+	TP <= BOXCLR4;
 
 end behavior;

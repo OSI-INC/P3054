@@ -4,25 +4,25 @@
 ; This code runs in an OSR8 microprocessor.
 
 ; Configuration Constants.
-const version        1 ; The firmwarwe version.
-const id_hi       0xAA ; 0-255, no restrictions
-const id_lo       0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
-const f_low         14 ; Radio frequency calibration.
+const version         1 ; The firmwarwe version.
+const id_hi        0xAA ; 0-255, no restrictions
+const id_lo        0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
+const f_low          14 ; Radio frequency calibration.
 
 ; CPU Address Map Boundary Constants
-const mvar_bot  0x0000 ; Bottom of Main Variable Space
-const stack_bot 0x0100 ; Bottom of Program Stack
-const uvar_bot  0x0200 ; Bottom of User Variable Space
-const ctrl_bot  0x0400 ; Bottom Control Register Space
-const prog_bot  0x0800 ; Bottom of User Program Memory
-const prog_top  0x08FF ; Top of User Program Memory
+const mvar_bot   0x0000 ; Bottom of Main Variable Space
+const stack_bot  0x0100 ; Bottom of Program Stack
+const uvar_bot   0x0200 ; Bottom of User Variable Space
+const ctrl_bot   0x0400 ; Bottom Control Register Space
+const prog_bot   0x0800 ; Bottom of User Program Memory
+const prog_top   0x0FFF ; Top of User Program Memory
 
 ; Address Map Locations
 const mmu_irqb   0x0400 ; Interrupt Request Bits (Read)
 const mmu_imsk   0x0401 ; Interrupt Mask Bits (Read/Write)
 const mmu_irst   0x0402 ; Interrupt Reset Bits (Write)
 const mmu_acfg   0x0403 ; Amplifier Configuration (Write)
-const mmu_stc    0x0404 ; Stimulus Current (Write)
+const mmu_led    0x0404 ; Lamp Control (Write)
 const mmu_rst    0x0405 ; System Reset (Write)
 const mmu_xhb    0x0406 ; Transmit HI Byte (Write)
 const mmu_xlb    0x0407 ; Transmit LO Byte (Write)
@@ -97,16 +97,17 @@ const bit7_clr     0x7F ; Bit Seven Clear
 
 ; Timing Constants.
 const min_tcf        72 ; Minimum TCK periods per half RCK period
-const tx_delay       40 ; Wait time for sample transmission, TCK periods
-const wp_delay      255 ; Warm-up delay for auxiliary messages
-const num_vars       64 ; Number of vars to clear at start
 const initial_tcd    15 ; Max possible value of TCK divisor
+const tx_delay       40 ; Wait time for sample transmission in TCK periods
+const wp_delay      255 ; Warm-up delay for auxiliary messages in TCK periods
+const num_vars       64 ; Number of variable bytes to clear at start
 const uprog_tick    163 ; User program interrupt period minus one
-const id_delay       33 ; To pad id delay to 50 TCK periods
-const min_int_p      25 ; Minimum transmit period
+const id_delay       33 ; Identification spacing in TCK periods
+const min_int_p      16 ; Minimum transmit period in RCK periods
 const ads_rdly       16 ; Clock cycles for ADC readout
 const ads_cdly       22 ; Clock cycles for ADC self-calibration
-const tmp_period      8 ; Temperature update period in quarter-seconds
+const tmp_period      8 ; Temperature update period in 1/4 s
+const flash_len      30 ; Lamp flash time in 1/128 s
 
 ; Stimulus Control Variables
 const Sack_key   0x000A ; Acknowledgement key
@@ -313,7 +314,6 @@ pop B
 pop A
 pop F
 ret
-
 
 ; ------------------------------------------------------------
 ; Configure the accelerometer. We write to the power configuration 
@@ -679,7 +679,7 @@ rti                 ; Return from interrupt.
 ; ------------------------------------------------------------
 ; Transmit an annoucement, which consists of two auxiliary 
 ; messages: one with data and another a confirmation immediately
-; following. The two messages allow us to receive the annoucement
+; following. The two messages allow us to receive the announcement
 ; and identify the device, as well as eliminate noise announcements.
 ; We pass the auxiliary type in register A and the auxiliary data 
 ; in register B. The routine assumes we are running in boost with 
@@ -689,6 +689,13 @@ xmit_annc:
 
 push F
 push A
+push B
+push C
+
+; Move the auxiliary type into register C.
+
+push A
+pop C
 
 ; Prepare the VCO for message transmission. We must warm it up or
 ; else its frequency will be wrong at tranmission time.
@@ -710,14 +717,15 @@ dly A               ; transmit.
 ; with a nibble containing the auxiliary type, which has been 
 ; passed in A. The second byte consists of the data in register B.
 
-ld A,id_lo  ; Load LO byte of identifier into A,
+ld A,id_lo          ; Load LO byte of identifier into A,
 or A,0x0F           ; set lower four bits to one
 ld (mmu_xch),A      ; and write the transmit channel register.
 push B              ; Transfer the data byte from
 pop A               ; B into A
 ld (mmu_xlb),A      ; and write to transmit LO register.
-pop B               ; Pop auxiliary type into B.
-ld A,id_lo  ; Load LO byte of identifier again.
+push C              ; Transfer auxiliary type
+pop B               ; into B.
+ld A,id_lo          ; Load LO byte of identifier again.
 sla A               ; Shift A 
 sla A               ; left
 sla A               ; four
@@ -736,7 +744,7 @@ dly A               ; the transmit completes.
 ; type of a confirmation is always at_conf and the data byte is always
 ; the high byte of the device identifier.
 
-ld A,id_hi  ; Load HI byte id identifier into A and
+ld A,id_hi          ; Load HI byte id identifier into A and
 ld (mmu_xlb),A      ; write to transmit LO register.
 ld A,id_lo  ; Load LO byte of identifier into A,
 or A,0x0F           ; set lower four bits to one and
@@ -753,6 +761,9 @@ ld (mmu_xcr),A      ; control register.
 ld A,tx_delay       ; Wait for confirmation
 dly A               ; transmition to complete.
 
+pop C
+pop B
+pop A
 pop F
 
 ret
@@ -760,8 +771,8 @@ ret
 
 ; ------------------------------------------------------------
 ; Transmit an acknowledgement. We put the auxiliary type in
-; A and the acknowledgement key in B, then call our auxiliary
-; message routine.
+; A and the acknowledgement key in B, then call our announcement
+; routine.
 
 annc_ack:
 
@@ -1079,7 +1090,7 @@ ld A,(ccmdb)
 sub A,op_stop
 jp nz,check_stop_stim_end
 ld A,0                ; Clear A and
-ld (mmu_stc),A        ; turn off lamp.
+ld (mmu_led),A        ; turn off lamp.
 call annc_ack         ; Acknowledge the stop.
 jp cmd_loop
 check_stop_stim_end:
@@ -1094,7 +1105,7 @@ sub A,op_start
 jp nz,check_start_end
 call get_cmd_byte    ; Read stimulus current.
 ld A,0x01            ; Load a one for bit zero
-ld (mmu_stc),A       ; and turn on the LED.
+ld (mmu_led),A       ; and turn on the LED.
 call get_cmd_byte    ; Read pulse length byte one.
 call get_cmd_byte    ; Read pulse length byte zero.
 call get_cmd_byte    ; Read interval length byte one.
@@ -1307,6 +1318,29 @@ pop F
 ret                 
 
 ; -----------------------------------------------------------------
+; A visible delay for use when flashing the lamp as an indicator.
+
+flash_delay:
+
+push F
+push A
+push B
+
+ld A,flash_len
+push A
+pop B
+flash_delay_loop:
+ld A,0xFF
+dly A
+dec B
+jp nz,flash_delay_loop
+
+pop B
+pop A
+pop F
+ret
+
+; -----------------------------------------------------------------
 ; The main program. We begin by initializing the device, which
 ; includes initializing the stack pointer, variables, and interrupts.
 ; The main program uses IY to store the user program pointer.
@@ -1357,8 +1391,8 @@ ld (xmit_ch),A     ; low byte of the device identifier.
 
 ; Configure control space registers.
 
-ld A,0             ; Make sure the stimulus
-ld (mmu_stc),A     ; current is zero.
+ld A,0             ; Make sure the
+ld (mmu_led),A     ; lamp is turned off.
 ld (mmu_acfg),A    ; Unassert MSR and select AC coupling.
 ld (mmu_dfr),A     ; Set the diagnostic flags to zero.
 ld (mmu_i3p),A     ; their interrupt
@@ -1369,10 +1403,12 @@ ld (mmu_irst),A    ; and reset all interrupts.
 ld A,f_low         ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
 
-; Configure user programming.
+; Configure user programming. Disabled until we restrict the user
+; program to be restricted to the top kilobyte of ROM, or we shrink
+; the main program to fit into 2048 bytes.
 
-ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
-ld A,ret_code      ; Put a return opcode at first byte
+;ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
+;ld A,ret_code      ; Put a return opcode at first byte
 ;ld (IY),A          ; in user program, in case of enable.
 
 ; Calibrate the transmit.
@@ -1428,10 +1464,31 @@ pop L
 sub A,15
 jp z,nvm_init
 
+; Turn on and off the lamp.
+
+ld A,0x01
+ld (mmu_led),A
+call flash_delay
+ld A,0x00
+ld (mmu_led),A
+call flash_delay
+ld A,0x01
+ld (mmu_led),A
+call flash_delay
+ld A,0x00
+ld (mmu_led),A
+call flash_delay
+ld A,0x01
+ld (mmu_led),A
+call flash_delay
+ld A,0x00
+ld (mmu_led),A
+
 ; Enable interrupts.
 
 clri
 
+; ---------------------------------------------------------------
 ; The main event loop.
 
 main_loop:
