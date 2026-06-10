@@ -45,6 +45,7 @@
 -- synchronous reset, which reduces the number of registers used for counting. 
 -- Eliminate access to raw ADC data.
 
+-- V1.9 [10-JUN-26] 
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -82,19 +83,18 @@ entity main is
 		
 -- Configuration of OSR8 CPU.
 	constant prog_cntr_len : integer := 12;
-	constant cpu_addr_len : integer := 12;
+	constant cpu_addr_len : integer := 11;
 	constant start_pc : integer := 0;
 	constant interrupt_pc : integer := 3;
 	constant ram_addr_len : integer := 10;
-	constant cmd_addr_len : integer := 10;
 
 -- Memory Map Constants, sizes and base addresses.
-	constant ram_bot : integer  := 16#0000#;
-	constant ram_top : integer  := 16#03FF#;
-	constant ctrl_bot : integer := 16#0400#;
-	constant ctrl_top : integer := 16#07FF#;
-	constant prog_bot : integer := 16#0800#;
-	constant prog_top : integer := 16#0FFF#;
+	constant ctrl_bot : integer := 16#0000#;
+	constant ctrl_top : integer := 16#00FF#;
+	constant ram_bot  : integer := 16#0100#;
+	constant ram_top  : integer := 16#03FF#;
+	constant prog_bot : integer := 16#0400#;
+	constant prog_top : integer := 16#07FF#;
 	
 -- Memory Map Constants, low nibble addresses in units of bytes;
 	constant mmu_irqb  : integer := 16#00#; -- Interrupt Request Bits (Read)
@@ -388,7 +388,7 @@ begin
 -- Transmitter, Random Access Memory, and Interrupt Handler. Byte ordering is big-endian 
 -- (most significant byte at lower address). 
 	MMU : process (all) is
-		variable all_bits : integer range 0 to 4096;
+		variable all_bits : integer range 0 to 2048;
 		variable bottom_bits : integer range 0 to 63;
 	begin		
 		-- By default, don't write to RAM or PROG memories, nor do we read from
@@ -408,31 +408,27 @@ begin
 		-- program to be able to over-write the main program, which is loaded 
 		-- from the logic chip's conguration EEPROM on power-up.
 		prog_in <= cpu_data_out;
-		prog_in_addr(11) <= '1';
-		prog_in_addr(10 downto 0) <= cpu_addr(10 downto 0);
+		prog_in_addr(11 downto 10) <= "11";
+		prog_in_addr(9 downto 0) <= cpu_addr(9 downto 0);
 		
 		-- These signals develop after the CPU asserts a new address
 		-- along with CPU Write. They will be ready before the falling 
 		-- edge of the CPU clock.
 		all_bits := to_integer(unsigned(cpu_addr));
 		bottom_bits := to_integer(unsigned(cpu_addr(6 downto 0)));
+		
+		-- Combinatorial memory map, which serves all access except 
+		-- for writing to control registers. We have the control
+		-- space reads, which are either supplied by registers or
+		-- by shadow locations in RAM. We have the RAM itself, and
+		-- the program memory as well.
 		cpu_data_in <= (others => '0');
 		case all_bits is
-			when ram_bot to ram_top => 
-				if not CPUWR then
-					cpu_data_in <= ram_out;
-				else
-					RAMWR <= to_std_logic(CPUDS);
-				end if;
 			when ctrl_bot to ctrl_top =>
 				if not CPUWR then 
 					case bottom_bits is
 						when mmu_irqb => cpu_data_in <= int_bits;
 						when mmu_imsk => cpu_data_in <= int_mask;
-						when mmu_acfg =>
-							cpu_data_in(0) <= DC;
-							cpu_data_in(1) <= MSR;
-						when mmu_dfr => cpu_data_in(3 downto 0) <= df_reg;
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready
 							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Fast Clock Enabled
@@ -446,8 +442,8 @@ begin
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
---						when mmu_adcdh => cpu_data_in <= adc_data(17 downto 10);
---						when mmu_adcdl => cpu_data_in <= adc_data(9 downto 2);
+						when mmu_adcdh => cpu_data_in <= adc_data(17 downto 10);
+						when mmu_adcdl => cpu_data_in <= adc_data(9 downto 2);
 						when mmu_box1h => cpu_data_in <= box1_data(17 downto 10);
 						when mmu_box1l => cpu_data_in <= box1_data(9 downto 2);
 						when mmu_box2h => cpu_data_in <= box2_data(17 downto 10);
@@ -456,8 +452,16 @@ begin
 						when mmu_box3l => cpu_data_in <= box3_data(9 downto 2);
 						when mmu_box4h => cpu_data_in <= box4_data(17 downto 10);
 						when mmu_box4l => cpu_data_in <= box4_data(9 downto 2);
-						when others => null;
+						when others => cpu_data_in <= ram_out;
 					end case;
+				else 
+					RAMWR <= to_std_logic(CPUDS);
+				end if;
+			when ram_bot to ram_top => 
+				if not CPUWR then
+					cpu_data_in <= ram_out;
+				else
+					RAMWR <= to_std_logic(CPUDS);
 				end if;
 			when prog_bot to prog_top =>
 				if CPUWR then
@@ -467,10 +471,13 @@ begin
 				null;
 		end case;
 		
-		-- We use RESET to clear some registers and signals, but not all. We do not clear the
-		-- software reset signal, SWRST, on RESET, since we want SWRST to assert RESET for one
-		-- CK period. After a reset, the cpu address will not select the SWRST location, so
-		-- SWRST will be cleared on the next falling edge of CK.
+		-- Here is the memory map for control register write access. We use RESET 
+		-- to clear some registers and signals, but not all. We do not clear the
+		-- software reset signal, SWRST, on RESET, since we want SWRST to assert 
+		-- RESET for one CK period. After a reset, the cpu address will not select 
+		-- the SWRST location, so SWRST will be cleared on the next falling edge 
+		-- of CK. All writes to control space are shadowed by RAM locations so that
+		-- we can be sure to read them back.
 		if (RESET = '1') then
 			ADCRD <= false;
 			TXI <= false;
@@ -1351,6 +1358,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= BOXCLR4;
+	TP <= df_reg(0);
 
 end behavior;
