@@ -19,80 +19,91 @@ const prog_top   0x07FF ; Top of Address Range
 
 ; Control Register Locations
 const mmu_irqb   0x0000 ; Interrupt Request Bits (Read)
-const mmu_imsk   0x0001 ; Interrupt Mask Bits (Read/Write)
+const mmu_imsk   0x0001 ; Interrupt Mask Bits (Write/Readback)
 const mmu_irst   0x0002 ; Interrupt Reset Bits (Write)
-const mmu_acfg   0x0003 ; Amplifier Configuration (Write)
-const mmu_led    0x0004 ; Lamp Control (Write)
-const mmu_rst    0x0005 ; System Reset (Write)
-const mmu_xhb    0x0006 ; Transmit HI Byte (Write)
-const mmu_xlb    0x0007 ; Transmit LO Byte (Write)
-const mmu_xch    0x0008 ; Transmit Channel Number (Write)
+const mmu_acfg   0x0003 ; Amplifier Configuration (Write/Readback)
+const mmu_led    0x0004 ; Lamp Control (Write/Readback)
+const mmu_rst    0x0005 ; Software Reset (Write)
+const mmu_xhb    0x0006 ; Transmit HI Byte (Write/Readback)
+const mmu_xlb    0x0007 ; Transmit LO Byte (Write/Readback)
+const mmu_xch    0x0008 ; Transmit Channel Number (Write/Readback)
 const mmu_xcr    0x0009 ; Transmit Control Register (Write)
-const mmu_rfc    0x000A ; Radio Frequency Calibration (Write)
-const mmu_ccr    0x000B ; Clock Control Register (Write)
-const mmu_dfr    0x000C ; Diagnostic Flag Register (Read/Write)
+const mmu_rfc    0x000A ; Radio Frequency Calibration (Write/Readback)
+const mmu_ccr    0x000B ; Clock Control Register (Write/Readback)
+const mmu_dfr    0x000C ; Diagnostic Flag Register (Write/Readback)
 const mmu_sr     0x000D ; Status Register (Read)
 const mmu_cmp    0x000E ; Command Memory Portal (Read)
 const mmu_cpr    0x000F ; Command Processor Reset (Write)
-const mmu_i3p    0x0014 ; Interrupt Timer Three Period (Write)
-const mmu_i4p    0x0015 ; Interrupt Timer Four Period (Write)
-const mmu_i2c00  0x0016 ; i2c SDA=0 SCL=0 (Write)
-const mmu_i2c01  0x0017 ; i2c SDA=0 SCL=1 (Write)
-const mmu_i2cA0  0x0018 ; i2c SDA=A SCL=0 (Write)
-const mmu_i2cA1  0x0019 ; i2c SDA=A SCL=1 (Write) 
-const mmu_i2cZ0  0x001A ; i2c SDA=Z SCL=0 (Write)
-const mmu_i2cZ1  0x001B ; i2c SDA=Z SCL=1 (Write) 
-const mmu_i2cMR  0x001C ; i2c Most Recent Eight Bits (Read)
-const mmu_adc    0x001D ; ADC Control Register (Write)
-const mmu_adcdh  0x001E ; ADC Data HI Byte (Read)
-const mmu_adcdl  0x001F ; ADC Data LO Byte (Read)
-const mmu_box1h  0x0020 ; Box Filter 1 HI Byte (Read)
-const mmu_box1l  0x0021 ; Box Filter 1 LO Byte (Read)
-const mmu_box2h  0x0022 ; Box Filter 2 HI Byte (Read)
-const mmu_box2l  0x0023 ; Box Filter 2 LO Byte (Read)
-const mmu_box3h  0x0024 ; Box Filter 3 HI Byte (Read)
-const mmu_box3l  0x0025 ; Box Filter 3 LO Byte (Read)
-const mmu_box4h  0x0026 ; Box Filter 4 HI Byte (Read)
-const mmu_box4l  0x0027 ; Box Filter 4 LO Byte (Read)
-const mmu_boxcr  0x0028 ; Box Filter Control Register (Write)
+const mmu_i3p    0x0010 ; Interrupt Timer Three Period (Write/Readback)
+const mmu_i4p    0x0011 ; Interrupt Timer Four Period (Write/Readback)
+const mmu_i2c00  0x0012 ; i2c SDA=0 SCL=0 (Write/Readback)
+const mmu_i2c01  0x0013 ; i2c SDA=0 SCL=1 (Write/Readback)
+const mmu_i2cA0  0x0014 ; i2c SDA=A SCL=0 (Write/Readback)
+const mmu_i2cA1  0x0015 ; i2c SDA=A SCL=1 (Write/Readback) 
+const mmu_i2cZ0  0x0016 ; i2c SDA=Z SCL=0 (Write/Readback)
+const mmu_i2cZ1  0x0017 ; i2c SDA=Z SCL=1 (Write/Readback) 
+const mmu_i2cMR  0x0018 ; i2c Most Recent Eight Bits (Read)
+const mmu_smcr   0x0019 ; Sample Control Register (Write)
+const mmu_saddr  0x001A ; Sample Address Register (Write/Readback)
+const mmu_adcdh  0x001B ; ADC Data HI Byte (Read)
+const mmu_adcdl  0x001C ; ADC Data LO Byte (Read)
+const mmu_accdh  0x001D ; Accumulator HI Byte (Read)
+const mmu_accdl  0x001E ; Accumulator LO Byte (Read)
+const mmu_msr    0x001F ; Impedance Measurement Control (Write/Readback)
 
-; Main Program Variables
+; Variables: Main Program, Command Reception and Response
 const Sack_key   0x0300 ; Acknowledgement key
 const ccmdb      0x0301 ; Copy of Command Byte
+
+; Variables: Main Program, Sample Transmission
 const xmit_ch    0x0303 ; Telemetry Channel Number
+
+; Variables: Main Program, Temperature Measurement
 const tmp_chb    0x0304 ; Temperature counter, HI
 const tmp_clb    0x0305 ; Temperature counter, LO
 const temp_hi    0x0306 ; Saved temperature measurement, HI
 const temp_lo    0x0307 ; Saved temperature measurement, LO
-const box_cnt    0x0308 ; Box filter counter for accumulation
-const box_p      0x0309 ; Box filter width
-const box_s      0x030A ; Box filter pre-load shift mask
-const adc_cmd    0x030B ; ADC command
+
+; Variables: Main Program, Sample Controller Accumulator
+const x1_idx     0x0308 ; X1 Sample Counter
+const x2_idx     0x0309 ; X2 Sample Counter
+const x3_idx     0x030A ; X3 Sample Counter
+const x4_idx     0x030B ; X4 Sample Counter
+const x1_txp     0x030C ; X1 Sample Period, multiples of 1/1024 s.
+const x2_txp     0x030D ; X1 Sample Period, multiples of 1/1024 s.
+const x3_txp     0x030E ; X1 Sample Period, multiples of 1/1024 s.
+const x4_txp     0x030F ; X1 Sample Period, multiples of 1/1024 s.
+const x1_mult    0x0310 ; X1 Repeat Count, applies during accumulation.
+const x2_mult    0x0311 ; X2 Repeat Count, applies during accumulation.
+const x3_mult    0x0312 ; X3 Repeat Count, applies during accumulation.
+const x4_mult    0x0313 ; X4 Repeat Count, applies during accumulation.
+
+; Variables: Main Program, User Program Control
 const UPrun      0x0322 ; Running
 const UPinit     0x0323 ; Initialize
 
-; Status Bit Masks, for use with status register
-const sr_cmdrdy    0x01 ; Command Ready Flag
+; Constants: Status Register Bit Masks
+const sr_cmdrdy    0x01 ; Command Ready
 const sr_enfck     0x02 ; Enable Fast Clock
-const sr_ledon     0x04 ; LED On
-const sr_txa       0x08 ; Transmit Active Flag
+const sr_ledon     0x04 ; Lamp On
+const sr_txa       0x08 ; Transmitter Active
 const sr_cpa       0x10 ; Command Processor Active
-const sr_boost     0x20 ; Boost Flag
+const sr_adcbsy    0x20 ; ADC Controller Busy
 const sr_cme       0x40 ; Command Memory Empty
-const sr_rck       0x80 ; RCK State
+const sr_rck       0x80 ; Current Value of Reference Clock
 
-; Transmit Control Masks, for use with tansmit control register
+; Constants: Transmit Control Masks
 const tx_txi       0x01 ; Assert transmit initiate
 const tx_txwp      0x02 ; Assert transmit warm-up
 
-; Auxiliary message types.
+; Constants: Auxiliary message types.
 const at_id           1 ; Identification
 const at_ack          2 ; Acknowledgements
 const at_batt         3 ; Battery Measurement
 const at_conf         4 ; Confirmation
 const at_ver          5 ; Version
 
-; Bit Masks
+; Constants: Generic Bit Masks
 const bit0_mask    0x01 ; Bit Zero Mask
 const bit1_mask    0x02 ; Bit One Mask
 const bit2_mask    0x04 ; Bit Two Mask
@@ -110,7 +121,7 @@ const bit5_clr     0xDF ; Bit Five Clear
 const bit6_clr     0xBF ; Bit Six Clear
 const bit7_clr     0x7F ; Bit Seven Clear
 
-; Timing Constants.
+; Constants: Delays, Frequencies, and Periods
 const min_tcf        72 ; Minimum TCK periods per half RCK period
 const initial_tcd    15 ; Max possible value of TCK divisor
 const tx_delay       40 ; Wait time for sample transmission in TCK periods
@@ -118,40 +129,40 @@ const wp_delay      255 ; Warm-up delay for auxiliary messages in TCK periods
 const num_vars       64 ; Number of variable bytes to clear at start
 const uprog_tick    163 ; User program interrupt period minus one
 const id_delay       33 ; Identification spacing in TCK periods
-const sample_p       31 ; Sample period in RCK periods
-const ads_rdly       16 ; Clock cycles for ADC readout
-const ads_cdly       22 ; Clock cycles for ADC self-calibration
+const sample_period  31 ; Sample period in RCK periods
+const adc_rdly       16 ; Clock cycles for ADC readout
+const adc_cdly       22 ; Clock cycles for ADC self-calibration
 const tmp_period      8 ; Temperature update period in 1/4 s
 const flash_len      30 ; Lamp flash time in 1/128 s
 
-; Instruction Codes
+; Constants: Instruction Codes
 const ret_code     0x0A ; Return from subroutine instruction
 
-; Operation Codes
+; Constants: Command Codes
 const op_stop         0 ; 0 operands
 const op_start        1 ; 8 operands
 const op_xon          2 ; 2 operand
 const op_xoff         3 ; 0 operands
 const op_batt         4 ; 0 operands
 const op_id           5 ; 0 operands
-const op_pgld         6 ; 1 operand, variable data
+const op_pgld         6 ; 1 operands
 const op_pgon         7 ; 0 operands
 const op_pgoff        8 ; 0 operands
 const op_pgrst        9 ; 0 operands
 const op_shdn        10 ; 0 operands
 const op_ver         11 ; 0 operands
 
-; Non-Volatile Memory Constants. The M24C16 EEPROM provides 2K x 8 
-; of NVM with an I2C interface. We can read 1-2048 bytes in one
-; read cycle. We can write 1-16 bytes in one write cycle. The device
-; address consists only of four bits, the lower three bits of the
-; seven-biit I2C address are used to select one of eight 256-byte
-; blocks within the EEPROM.
+; Constants: Non-Volatile Memory. The M24C16 EEPROM provides 
+; 2K x 8 of NVM with an I2C interface. We can read 1-2048 
+; bytes in one read cycle. We can write 1-16 bytes in one write 
+; cycle. The device address consists only of four bits, the lower 
+; three bits of the seven-biit I2C address are used to select one 
+; of eight 256-byte blocks within the EEPROM.
 const nvm_addr     0x50 ; I2C address, top nibble
 const nvm_hmask    0x0F ; Mask for bottom nibble address
 
-; TMP117 Temperature Sensor Constants. The tmp provides
-; sixteen-bit read and write registers to the I2C bus.
+; Constants: Temperature Sensor. The TMP117 provides sixteen-bit 
+; read and write registers to the I2C bus.
 const tmp_addr     0x49 ; I2C address
 const tmp_treg     0x00 ; Temperature register
 const tmp_creg     0x01 ; Configuration register
@@ -160,9 +171,10 @@ const tmp_onel     0x00 ; One-shot measurement, LSB
 const tmp_fasth    0x00 ; Fast measurement, MSB
 const tmp_fastl    0x00 ; Fast measurement, LSB
 
-; BMA423 Accelerometer Addresses and Configuration Values. We give
-; the internal addresses of registers. When the address is always 
-; for a two-byte read, we say so.
+; Constants: Accelerometer. The BMA423 requires configuration for
+; its internal sample rate. We give the internal addresses of 
+; registers. When the address is always for a two-byte read, we 
+; say so.
 const bma_addr     0x18 ; I2C address
 const bma_id       0x00 ; Identifier register
 const bma_x        0x12 ; ACC_X register, two bytes
@@ -188,18 +200,19 @@ const bma_disable  0x00 ; For PWR_CTRL, disable data acquisition.
 const bma_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
 const bma_sdly       50 ; Startup delay in RCK periods.
 
-; ADS7052 Analog to Digital Converter Constants.
-const ads_rd1      0x34 ; Read ADC1
-const ads_rd2      0x35 ; Read ADC2
-const ads_rd3      0x36 ; Read ADC3
-const ads_rd4      0x37 ; Read ADC4
-const ads_cal1     0x0C ; Calibrate ADC1
-const ads_cal2     0x0D ; Calibrate ADC2
-const ads_cal3     0x0E ; Calibrate ADC3
-const ads_cal4     0x0F ; Calibrate ADC4
+; Constants: Sample Controller.
+const sm_read      0x01 ; Read an ADC and store
+const sm_calib     0x03 ; Read and calibrate an ADC
+const sm_add       0x04 ; Add sample to accumulator
+const sm_rst       0x08 ; Reset the accumulator
+const sm_x1        0x00 ; Base of of X1 sample memory
+const sm_x2        0x40 ; Base of X2 sample memory
+const sm_x3        0x80 ; Base of X3 sample memory
+const sm_x4        0xC0 ; Base of X4 sample memory
+const smca_mask    0xC0 ; Channel address mask
 
-; Math constants.
-const off_16bs    0x80 ; Convert sixteen bit signed to unsigned.
+; Constants: Mathematical.
+const off_16bs     0x80 ; Convert sixteen bit signed to unsigned.
 
 
 ; ------------------------------------------------------------
@@ -385,29 +398,49 @@ ret
 ; any other samples are taken from the ADCs, just after we apply
 ; power to the IPT. The self-calibration consists of a twenty-four
 ; bit readout, which is effective before any sample is taken, but
-; not effective after the first sample is taken.
+; not effective after the first sample is taken. The ADC Controller
+; runs of FCK, so we must have TCK running when we call this routine.
 
-ads_calib:
+adc_calib:
 
 push F
 push A
 
-ld A,ads_cal1
-ld (mmu_adc),A
-ld A,ads_cdly
-dly A
-ld A,ads_cal2
-ld (mmu_adc),A
-ld A,ads_cdly
-dly A
-ld A,ads_cal3
-ld (mmu_adc),A
-ld A,ads_cdly
-dly A
-ld A,ads_cal4
-ld (mmu_adc),A
-ld A,ads_cdly
-dly A
+ld A,sm_x1
+ld (mmu_saddr),A
+ld A,sm_calib
+ld (mmu_smcr),A
+adc_calib_1:
+ld A,(mmu_sr)
+and A,sr_adcbsy
+jp nz,adc_calib_1
+
+ld A,sm_x2
+ld (mmu_saddr),A
+ld A,sm_calib
+ld (mmu_smcr),A
+adc_calib_2:
+ld A,(mmu_sr)
+and A,sr_adcbsy
+jp nz,adc_calib_2
+
+ld A,sm_x3
+ld (mmu_saddr),A
+ld A,sm_calib
+ld (mmu_smcr),A
+adc_calib_3:
+ld A,(mmu_sr)
+and A,sr_adcbsy
+jp nz,adc_calib_3
+
+ld A,sm_x4
+ld (mmu_saddr),A
+ld A,sm_calib
+ld (mmu_smcr),A
+adc_calib_4:
+ld A,(mmu_sr)
+and A,sr_adcbsy
+jp nz,adc_calib_4
 
 pop A
 pop F
@@ -547,34 +580,89 @@ jp int_xmit_rdy
 ; ADCs 1-4 for channels 5-8.
 
 int_xmit_adc:
-ld A,(adc_cmd)
-ld (mmu_adc),A
-ld A,ads_rdly
-dly A
-ld A,(box_cnt)
-dec A
-ld (box_cnt),A
-jp nz,int_xmit_done
-ld IX,mmu_box1h
+
+; Compose the sample address out of the channel number and the
+; index. Leaving the address of the first sample (index zero) in
+; register B.
 ld A,(xmit_ch)
 dec A
 and A,0x03
-int_box_loop:
+rrc A
+rrc A
+push A
+pop B
+ld A,(x1_idx)
+or A,B
+
+; Set the sample address and initiate an ADC read cycle. We don't 
+; need to wait for completion because we have enough stuff to do 
+; before we change the sample address again. The readout continues 
+; in the background.
+ld (mmu_saddr),A
+ld A,sm_read
+ld (mmu_smcr),A
+
+; Decrement the sample index.
+ld A,(x1_idx)
 dec A
-jp np,int_box_end
-inc IX
-inc IX
-jp int_box_loop
-int_box_end:
-ld A,(IX)
+ld (x1_idx),A
+
+; If the sample index is zero or greater, we are not ready to transmit, 
+; so we are done.
+jp p,int_xmit_done
+
+; We have finished storing samples. Reset the sample index
+; to the transmit period minus one. Save the transmit period
+; in C for later.
+ld A,(x1_txp)
+push A
+pop C
+dec A
+ld (x1_idx),A
+
+; Point to the accumulator control register with
+; IX and the sample address with IY.
+ld IX,mmu_smcr
+ld IY,mmu_saddr
+
+; Reset the accumulator. 
+ld A,sm_rst
+ld (IX),A
+
+; We are going to add sixteen samples to the accumulator
+; so as to produce a sum of the correct magnitude. These 
+; could be sixteen different samples, sixteen copies of
+; a single sample, or some other such combination. The 
+; sample multiplier tells us how many times to add each 
+; sample to the accumulator. We store the sample multiplier
+; in register E.
+ld A,(x1_mult)
+push A
+pop E
+
+; The accumulator loop goes through txp samples in the sample 
+; memory and adds each of them mult times to the accumulator.
+int_xmit_acc_loop:
+  push 
+  pop A
+  ld (IY),A
+  push E
+  pop D
+  ld A,sm_add
+  int_xmit_mult_loop:
+    ld (IX),A
+    dec D
+  jp nz,int_xmit_mult_loop
+  inc B
+  dec C
+jp nz,int_xmit_acc_loop
+
+; The accumulator now contains our transmit sample, so
+; load it into the transmitter.
+ld A,(mmu_accdh)
 ld (mmu_xhb),A
-inc IX
-ld A,(IX)
+ld A,(mmu_accdl)
 ld (mmu_xlb),A
-ld A,0x0F
-ld (mmu_boxcr),A
-ld A,(box_p)
-ld (box_cnt),A
 jp int_xmit_rdy
 
 ; Read two bytes from the non-volatile memory.
@@ -1127,9 +1215,9 @@ ld A,(ccmdb)
 sub A,255
 jp nz,check_xon_127
 ld A,8
-ld (box_p),A 
-ld A,0x14
-ld (box_s),A
+ld (x1_txp),A 
+ld A,2
+ld (x1_mult),A
 jp check_xon_go
 
 check_xon_127:
@@ -1137,9 +1225,9 @@ ld A,(ccmdb)
 sub A,127
 jp nz,check_xon_63
 ld A,4
-ld (box_p),A 
-ld A,0x24
-ld (box_s),A
+ld (x1_txp),A 
+ld A,4
+ld (x1_mult),A
 jp check_xon_go
 
 check_xon_63:
@@ -1147,16 +1235,16 @@ ld A,(ccmdb)
 sub A,63
 jp nz,check_xon_31
 ld A,2
-ld (box_p),A 
-ld A,0x34
-ld (box_s),A
+ld (x1_txp),A 
+ld A,8
+ld (x1_mult),A
 jp check_xon_go
 
 check_xon_31:
 ld A,1
-ld (box_p),A 
-ld A,0x44
-ld (box_s),A
+ld (x1_txp),A 
+ld A,16
+ld (x1_mult),A
 
 check_xon_go:
 ld A,(xmit_ch)
@@ -1164,23 +1252,11 @@ dec A
 and A,bit2_mask
 srl A
 srl A
-push A
-pop B
-ld A,(mmu_acfg)
-and A,bit0_clr
-or A,B
 ld (mmu_acfg),A
-ld A,(xmit_ch)
-dec A
-and A,0x03
-push A
-pop B
-ld A,(box_s)
-or A,B
-ld (adc_cmd),A
-ld A,(box_p)         ; Load the box width
-ld (box_cnt),A       ; and write to the box counter.
-ld A,sample_p        ; Load the sample period,
+ld A,(x1_txp)        ; Load the transmit period,
+dec A                ; decrement,
+ld (x1_idx),A        ; and write to the sample index.
+ld A,sample_period   ; Load the sample period,
 ld (mmu_i4p),A       ; write interrupt timer four.
 ld A,(mmu_imsk)      ; Enable interrupt timer four
 or A,bit3_mask       ; with bit three of interrupt
@@ -1441,16 +1517,30 @@ ld (xmit_ch),A     ; low byte of the device identifier.
 
 ; Configure control space registers.
 
-ld A,0             ; Make sure the
-ld (mmu_led),A     ; lamp is turned off.
-ld (mmu_acfg),A    ; Unassert MSR and select AC coupling.
-ld (mmu_dfr),A     ; Set the diagnostic flags to zero.
-ld (mmu_i3p),A     ; their interrupt
-ld (mmu_i4p),A     ; generation.
+ld A,0             ; Prepare zeros to write.
+ld (mmu_led),A     ; Turn off Lamp.
+ld (mmu_acfg),A    ; Select AC coupling.
+ld (mmu_msr),A     ; Turn off impedance measurement.
+ld (mmu_dfr),A     ; Clear diagnostic flags to zero.
+ld (mmu_i3p),A     ; Disable interrupt timer three.
+ld (mmu_i4p),A     ; Disable interrupt timer four.
 ld (mmu_imsk),A    ; Mask all interrupts.
-ld (box_cnt),A     ; Clear the box counter.
-ld A,0xFF          ; Load A with ones
-ld (mmu_irst),A    ; and reset all interrupts.
+ld (x1_idx),A      ; Clear the X1 sample index.
+ld (x2_idx),A      ; Clear the X2 sample index.
+ld (x3_idx),A      ; Clear the X3 sample index.
+ld (x4_idx),A      ; Clear the X4 sample index.
+ld (x1_txp),A      ; Clear the X1 sample period.
+ld (x2_txp),A      ; Clear the X2 sample period.
+ld (x3_txp),A      ; Clear the X3 sample period.
+ld (x4_txp),A      ; Clear the X4 sample period.
+ld (x1_mult),A     ; Clear the X1 multiplier.
+ld (x2_mult),A     ; Clear the X2 multiplier.
+ld (x3_mult),A     ; Clear the X3 multiplier.
+ld (x4_mult),A     ; Clear the X4 multiplier.
+
+ld A,0xFF          ; Prepare ones to write.
+ld (mmu_irst),A    ; Reset all interrupts.
+
 ld A,f_low         ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
 
@@ -1477,12 +1567,12 @@ ld (tmp_chb),A
 ld A,0
 ld (tmp_clb),A
 
-; Put the CPU into boost mode and call the ADS7052 ADC calibration
-; routine. Move back out of boost.
+; Put the CPU into boost mode and call the ADC calibration routine.
+; Afterwards, move out of boost.
 
 ld A,0x03 
 ld (mmu_ccr),A 
-call ads_calib
+call adc_calib
 ld A,0x00
 ld (mmu_ccr),A 
 

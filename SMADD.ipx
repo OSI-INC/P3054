@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DiamondModule name="SMADD" module="Adder" VendorName="Lattice Semiconductor Corporation" generator="IPexpress" date="2026 06 12 11:46:39.237" version="3.5" type="Module" synthesis="lse" source_format="VHDL">
+  <Package>
+		<File name="SMADD.lpc" type="lpc" modified="2026 06 12 11:46:37.380"/>
+		<File name="SMADD.vhd" type="top_level_vhdl" modified="2026 06 12 11:46:37.443"/>
+		<File name="SMADD_tmpl.vhd" type="template_vhdl" modified="2026 06 12 11:46:37.443"/>
+		<File name="tb_SMADD_tmpl.vhd" type="testbench_vhdl" modified="2026 06 12 11:46:37.458"/>
+  </Package>
+</DiamondModule>

@@ -13,11 +13,11 @@ CoreType=LPM
 CoreStatus=Demo
 CoreName=Adder
 CoreRevision=3.5
-ModuleName=Accumulator
+ModuleName=SMADD
 SourceFormat=VHDL
 ParameterFileVersion=1.0
-Date=06/08/2026
-Time=15:23:18
+Date=06/12/2026
+Time=11:46:37
 
 [Parameters]
 Verilog=0
@@ -36,4 +36,4 @@ Complex=0
 Stage=0
 
 [Command]
-cmd_line= -w -n Accumulator -lang vhdl -synth synplify -bus_exp 7 -bb -arch xo2c00 -type mgaddsub -width 18 -unsigned -output_reg -enable -pipeline 0
+cmd_line= -w -n SMADD -lang vhdl -synth lse -bus_exp 7 -bb -arch xo2c00 -type mgaddsub -width 18 -unsigned -output_reg -enable -pipeline 0

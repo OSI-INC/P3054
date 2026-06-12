@@ -11,13 +11,13 @@ Status=S
 VendorName=Lattice Semiconductor Corporation
 CoreType=LPM
 CoreStatus=Demo
-CoreName=RAM_DP
-CoreRevision=6.5
-ModuleName=SPS_RAM
+CoreName=RAM_DQ
+CoreRevision=7.5
+ModuleName=SMRAM
 SourceFormat=VHDL
 ParameterFileVersion=1.0
-Date=06/11/2026
-Time=22:10:14
+Date=06/12/2026
+Time=11:49:04
 
 [Parameters]
 Verilog=0
@@ -27,10 +27,8 @@ Destination=Synplicity
 Expression=BusA(0 to 7)
 Order=Big Endian [MSB:LSB]
 IO=0
-RAddress=512
-RData=18
-WAddress=512
-WData=18
+Address=256
+Data=14
 enByte=0
 ByteSize=9
 OutputEn=0
@@ -43,6 +41,7 @@ MemFile=
 MemFormat=bin
 EnECC=0
 Pipeline=0
+Write=Normal
 init_data=0
 no_init=0
 
@@ -50,4 +49,4 @@ no_init=0
 =mem
 
 [Command]
-cmd_line= -w -n SPS_RAM -lang vhdl -synth synplify -bus_exp 7 -bb -arch xo2c00 -type ramdps -device LCMXO2-1200ZE -raddr_width 9 -rwidth 18 -waddr_width 9 -wwidth 18 -rnum_words 512 -wnum_words 512 -cascade 11 -mem_init0
+cmd_line= -w -n SMRAM -lang vhdl -synth lse -bus_exp 7 -bb -arch xo2c00 -type ramdq -device LCMXO2-1200ZE -addr_width 8 -data_width 14 -num_words 256 -cascade 11 -mem_init0 -writemode NORMAL

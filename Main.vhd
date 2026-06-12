@@ -55,7 +55,8 @@
 -- to 1024 SPS. Tested for AC, believe now working for DC too. 
 
 -- V1.10 [11-JUN-26] Instead of four accumulators, use a sample memory made out
--- of our last EBR block, and share accumulator at transmit time.
+-- of our last EBR block, and share a single accumulator to calculate the transmit
+-- sample value at transmit time. Logic size drops from 1250 to 1120 LUTs.
 
 
 library ieee;  
@@ -113,44 +114,36 @@ entity main is
 -- but not written, we say it is "Read".
 	constant mmu_irqb  : integer := 16#00#; -- Interrupt Request Bits (Read)
 	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Write/Readback)
-	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write/Readback)
-	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Read/Write)
+	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write)
+	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Write/Readback)
 	constant mmu_led   : integer := 16#04#; -- Lamp Switch (Write/Readback)
-	constant mmu_rst   : integer := 16#05#; -- System Reset (Write)
+	constant mmu_rst   : integer := 16#05#; -- Software Reset (Write)
 	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write/Readback)
 	constant mmu_xlb   : integer := 16#07#; -- Transmit LO Byte (Write/Readback)
 	constant mmu_xch   : integer := 16#08#; -- Transmit Channel Number (Write/Readback)
-	constant mmu_xcr   : integer := 16#09#; -- Transmit Control Register (Write/Readback)
+	constant mmu_xcr   : integer := 16#09#; -- Transmit Control Register (Write)
 	constant mmu_rfc   : integer := 16#0A#; -- Radio Frequency Calibration (Write/Readback)	
 	constant mmu_ccr   : integer := 16#0B#; -- Clock Control Register (Write/Readback)
 	constant mmu_dfr   : integer := 16#0C#; -- Diagnostic Flag Register (Write/Readback)
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
-	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal(Read)
+	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal (Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
-	constant mmu_i3p   : integer := 16#14#; -- Interrupt Timer Three Period (Write/Readback)
-	constant mmu_i4p   : integer := 16#15#; -- Interrupt Timer Four Period (Write/Readback)
-	constant mmu_i2c00 : integer := 16#16#; -- i2c SDA=0 SCL=0 (Write/Readback)
-	constant mmu_i2c01 : integer := 16#17#; -- i2c SDA=0 SCL=1 (Write/Readback)
-	constant mmu_i2cA0 : integer := 16#18#; -- i2c SDA=A SCL=0 (Write/Readback)
-	constant mmu_i2cA1 : integer := 16#19#; -- i2c SDA=A SCL=1 (Write/Readback)
-	constant mmu_i2cZ0 : integer := 16#1A#; -- i2c SDA=Z SCL=0 (Write/Readback)
-	constant mmu_i2cZ1 : integer := 16#1B#; -- i2c SDA=Z SCL=1 (Write/Readback)
-	constant mmu_i2cMR : integer := 16#1C#; -- i2C Most Recent Eight Bits (Read)
-	constant mmu_adccr : integer := 16#1D#; -- ADC Control Register (Write/Readback)
-	constant mmu_adcdh : integer := 16#1E#; -- ADC Data HI Byte (Read)
-	constant mmu_adcdl : integer := 16#1F#; -- ADC Data LO Byte (Read)
-	constant mmu_box1h : integer := 16#20#; -- Box Filter 1 HI Byte (Read)
-	constant mmu_box1l : integer := 16#21#; -- Box Filter 1 LO Byte (Read)
-	constant mmu_box2h : integer := 16#22#; -- Box Filter 2 HI Byte (Read)
-	constant mmu_box2l : integer := 16#23#; -- Box Filter 2 LO Byte (Read)
-	constant mmu_box3h : integer := 16#24#; -- Box Filter 3 HI Byte (Read)
-	constant mmu_box3l : integer := 16#25#; -- Box Filter 3 LO Byte (Read)
-	constant mmu_box4h : integer := 16#26#; -- Box Filter 4 HI Byte (Read)
-	constant mmu_box4l : integer := 16#27#; -- Box Filter 4 LO Byte (Read)
-	constant mmu_boxcr : integer := 16#28#; -- Box Filter Control Register (Write/Readback)
-	constant mmu_acch  : integer := 16#29#; -- Accumulator HI Byte (Read)
-	constant mmu_accl  : integer := 16#2A#; -- Accumulator LO Byte (Read)
-	constant mmu_acccr : integer := 16#2B#; -- Accumulator Control Register (Write/Readback)
+	constant mmu_i3p   : integer := 16#10#; -- Interrupt Timer Three Period (Write/Readback)
+	constant mmu_i4p   : integer := 16#11#; -- Interrupt Timer Four Period (Write/Readback)
+	constant mmu_i2c00 : integer := 16#12#; -- i2c SDA=0 SCL=0 (Write/Readback)
+	constant mmu_i2c01 : integer := 16#13#; -- i2c SDA=0 SCL=1 (Write/Readback)
+	constant mmu_i2cA0 : integer := 16#14#; -- i2c SDA=A SCL=0 (Write/Readback)
+	constant mmu_i2cA1 : integer := 16#15#; -- i2c SDA=A SCL=1 (Write/Readback)
+	constant mmu_i2cZ0 : integer := 16#16#; -- i2c SDA=Z SCL=0 (Write/Readback)
+	constant mmu_i2cZ1 : integer := 16#17#; -- i2c SDA=Z SCL=1 (Write/Readback)
+	constant mmu_i2cMR : integer := 16#18#; -- i2C Most Recent Eight Bits (Read)
+	constant mmu_smcr  : integer := 16#19#; -- Sample Control Register (Write)
+	constant mmu_saddr : integer := 16#1A#; -- Sample Address Register (Write/Readback)
+	constant mmu_adcdh : integer := 16#1B#; -- ADC Data HI Byte (Read)
+	constant mmu_adcdl : integer := 16#1C#; -- ADC Data LO Byte (Read)
+	constant mmu_accdh : integer := 16#1D#; -- Accumulator Data HI Byte (Read)
+	constant mmu_accdl : integer := 16#1E#; -- Accumulator Data LO Byte (Read)
+	constant mmu_msr   : integer := 16#1F#; -- Impedance Measurement Control (Write/Readback)
 end;
 
 architecture behavior of main is
@@ -193,12 +186,10 @@ architecture behavior of main is
 		: boolean := false;
 	attribute syn_keep of ADCRD, ADCBSY : signal is true;
 	attribute nomerge of ADCRD, ADCBSY : signal is "";  
-	signal adc_data : std_logic_vector(17 downto 0);
-	signal adc_select : std_logic_vector(1 downto 0);
-	signal adc_shift : std_logic_vector (2 downto 0);
-	signal BOXADD1, BOXADD2, BOXADD3, BOXADD4 : std_logic;
-	signal BOXCLR1, BOXCLR2, BOXCLR3, BOXCLR4 : std_logic;
-	signal box1_data, box2_data, box3_data, box4_data : std_logic_vector(17 downto 0);
+	signal adc_data, sm_data : std_logic_vector(13 downto 0);
+	signal acc_data : std_logic_vector(17 downto 0);
+	signal sm_addr : std_logic_vector(7 downto 0);
+	signal ACCADD, ACCRST, SMWR : std_logic;
 
 -- Sensor Readout
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
@@ -349,10 +340,8 @@ begin
 		end if;	
 	end process;
 		
--- User memory and configuration code for the CPU. This RAM will be initialized at
--- start-up with a configuration file, and so may be read after power up to configure
--- sensor. The configuration data will begin at address zero.
-	RAM : entity RAM port map (
+-- The Process Memory is the RAM available to the code executing on the CPU.
+	Process_Memory : entity RAM port map (
 		Clock => not CK,
 		ClockEn => '1',
         Reset => '0',
@@ -361,12 +350,10 @@ begin
 		Data => ram_in,
 		Q => ram_out);
 
--- Instruction Memory for CPU. This memory will be initialized with the CPU program, 
--- the first instruction of the program being stored at address zero. The CPU reads 
--- the instruction memory with a separate address bus, which we call the program counter. 
--- The CPU may also write to the program memory through the cpu_addr, but only to the 
--- top kilobyte of the ROM.
-	ROM : entity ROM port map (
+-- The Program Memory is the ROM available for code. This program memory is also
+-- accessible for writing during code execution. The top kilobyte appears for both
+-- read and write access in the top kilobyte of the CPU memory space. 
+	Program_Memory : entity ROM port map (
 		RdAddress => prog_cntr,
         RdClock => not CK,
         RdClockEn => '1',
@@ -378,7 +365,7 @@ begin
 		WE => '1',
 		Data => prog_in);
 
--- The processor itself, and eight-bit microprocessor with thirteen-bit address bus.
+-- The OSR8 processor, configured for this application by its generic map.
 	CPU : entity OSR8_CPU 
 		generic map (
 			prog_cntr_len => prog_cntr_len,
@@ -406,7 +393,7 @@ begin
 -- (most significant byte at lower address). 
 	MMU : process (all) is
 		variable all_bits : integer range 0 to 2048;
-		variable bottom_bits : integer range 0 to 63;
+		variable bottom_bits : integer range 0 to 31;
 	begin		
 		-- By default, don't write to RAM or PROG memories, nor do we read from
 		-- the command memory FIFO.
@@ -432,7 +419,7 @@ begin
 		-- along with CPU Write. They will be ready before the falling 
 		-- edge of the CPU clock.
 		all_bits := to_integer(unsigned(cpu_addr));
-		bottom_bits := to_integer(unsigned(cpu_addr(6 downto 0)));
+		bottom_bits := to_integer(unsigned(cpu_addr(5 downto 0)));
 		
 		-- Combinatorial memory map, which serves all access except 
 		-- for writing to control registers. We have the control
@@ -448,26 +435,22 @@ begin
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready
 							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Fast Clock Enabled
-							cpu_data_in(2) <= LED;                  -- LED On
+							cpu_data_in(2) <= LED;                  -- Lamp On
 							cpu_data_in(3) <= to_std_logic(TXA);    -- Transmit Active
 							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active 
-							cpu_data_in(5) <= to_std_logic(BOOST);  -- Boost CPU
+							cpu_data_in(5) <= to_std_logic(ADCBSY); -- ADC Controller Busy
 							cpu_data_in(6) <= CME;                  -- Command Memory Empty
 							cpu_data_in(7) <= RCK;                  -- Reference Clock
 						when mmu_cmp =>
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
-						when mmu_adcdh => cpu_data_in <= adc_data(17 downto 10);
-						when mmu_adcdl => cpu_data_in <= adc_data(9 downto 2);
-						when mmu_box1h => cpu_data_in <= box1_data(17 downto 10);
-						when mmu_box1l => cpu_data_in <= box1_data(9 downto 2);
-						when mmu_box2h => cpu_data_in <= box2_data(17 downto 10);
-						when mmu_box2l => cpu_data_in <= box2_data(9 downto 2);
-						when mmu_box3h => cpu_data_in <= box3_data(17 downto 10);
-						when mmu_box3l => cpu_data_in <= box3_data(9 downto 2);
-						when mmu_box4h => cpu_data_in <= box4_data(17 downto 10);
-						when mmu_box4l => cpu_data_in <= box4_data(9 downto 2);
+						when mmu_adcdh => cpu_data_in <= adc_data(13 downto 6);
+						when mmu_adcdl => 
+							cpu_data_in(7 downto 2) <= adc_data(5 downto 0);
+							cpu_data_in(1 downto 0) <= (others => '0');
+						when mmu_accdh  => cpu_data_in <= acc_data(17 downto 10);
+						when mmu_accdl =>  cpu_data_in <= acc_data(9 downto 2);
 						when others => cpu_data_in <= ram_out;
 					end case;
 				else 
@@ -495,7 +478,6 @@ begin
 		-- of CK. All writes to control space are shadowed by RAM locations so that
 		-- we can be sure to read them back.
 		if (RESET = '1') then
-			ADCRD <= false;
 			TXI <= false;
 			TXWP <= false;
 			ENFCK <= false;
@@ -514,6 +496,11 @@ begin
 			SCL <= '1';
 			MSR <= '0';
 			DC <= '0';
+			ADCRD <= false;
+			ADCCAL <= false;
+			ACCRST <= '1';
+			ACCADD <= '0';
+			sm_addr <= (others => '0');
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
 		-- and transmit activity. Some signals we assert only for one CK period, and 
@@ -521,19 +508,15 @@ begin
 		elsif falling_edge(CK) then
 			CPRST <= false;
 			SWRST <= false;
-			ADCRD <= false;
 			TXI <= false;
-			BOXCLR1 <= '0';
-			BOXCLR2 <= '0';
-			BOXCLR3 <= '0';
-			BOXCLR4 <= '0';			
+			ADCRD <= false;
+			ACCRST <= '0';
+			ACCADD <= '0';
 			int_rst <= (others => '0');
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
 					case bottom_bits is
-						when mmu_acfg =>
-							DC <= cpu_data_out(0);
-							MSR <= cpu_data_out(1);
+						when mmu_acfg => DC <= cpu_data_out(0);
 						when mmu_xlb  => xmit_bits(7 downto 0) <= cpu_data_out;
 						when mmu_xhb  => xmit_bits(15 downto 8) <= cpu_data_out;
 						when mmu_xch  => tx_channel <= to_integer(unsigned(cpu_data_out));
@@ -580,16 +563,14 @@ begin
 							SCL <= '1';
 							i2c_in(7 downto 1) <= i2c_in(6 downto 0);
 							i2c_in(0) <= SDA;
-						when mmu_adccr => 
-							adc_select <= cpu_data_out(1 downto 0);
-							ADCRD <= (cpu_data_out(2) = '1');
-							ADCCAL <= (cpu_data_out(3) = '1');
-							adc_shift <= cpu_data_out(6 downto 4);
-						when mmu_boxcr =>
-							BOXCLR1 <= cpu_data_out(0);
-							BOXCLR2 <= cpu_data_out(1);
-							BOXCLR3 <= cpu_data_out(2);
-							BOXCLR4 <= cpu_data_out(3);
+						when mmu_smcr =>
+							ADCRD  <= (cpu_data_out(0) = '1');
+							ADCCAL <= (cpu_data_out(1) = '1');
+							ACCADD <= cpu_data_out(2);
+							ACCRST <= cpu_data_out(3);
+						when mmu_saddr =>
+							sm_addr <= cpu_data_out;
+						when mmu_msr => MSR <= cpu_data_out(0);
 						when others => null;
 					end case;
 				end if;
@@ -798,17 +779,42 @@ begin
 		end if;
 	end process;
 
+-- The Sample Memory is fourteen bits wide so as to accommodate
+-- our fourteen-bit ADC samples. The sample memory runs off 
+-- the fast clock to work well with the Sample Controller, which
+-- also runs on fast clock.
+	Sample_Memory : entity SMRAM port map (
+		Clock => not FCK,
+		ClockEn => '1',
+        Reset => '0',
+		WE => SMWR,
+		Address => sm_addr, 
+		Data => adc_data,
+		Q => sm_data);
+		
+-- The Sample Accumulator adds fourteen-bit samples from the Sample 
+-- Memory together so as to produce an eighteen-bit value from which
+-- we will read the top sixteen bits as our sample for transmission.
+-- The accumulator runs on the rising edge of CK.
+	Sample_Accumulator : entity SMADD port map (
+		DataA(17 downto 14) => "0000",
+		DataA(13 downto 0) => sm_data,
+		DataB => acc_data,
+		Clock => CK,
+		Reset => ACCRST,
+		ClockEn => ACCADD,
+		Result => acc_data);
+
 	-- The ADC Controller starts reading one of the fourteen-bit ADCs when 
-	-- it detects ADC Read (ADCRD) is asserted. The CPU should wait 20 CPU
-	-- cycles for data to be available and 25 CPU cycles for a self-
-	-- calibration to complete. The ADC Controller runs on the Fast Clock (FCK). 
-	-- If FCK is not running, the ADC Controller will do nothing. The ADCRD signal 
-	-- must be asserted for at least one FCK period. The ADCCAL flag tells the 
-	-- controller to read twenty-four bits instead of eighteen, which causes a 
-	-- self-calibration provided that the calibration access is the first 
-	-- one after power-up. The controller reads fourteen-bit ADC samples into 
-	-- the bottom fourteen bits of the eighteen-bit adc_data register. It shifts
-	-- the data left zero to four times depending upon the value of adc_shift.
+	-- it detects ADC Read (ADCRD). The CPU can either wait for sixteen TCK
+	-- periods (4.2 us) or poll the ADCBSY bit in the status register until
+	-- it clears. If ADCRD is accompanied by ADCCAL, the ADC Controller 
+	-- performs a calibration read of twenty-four bits, which causes a self-
+	-- calibration provided that the calibration access is the first one after
+	-- power-up. The controller shifts fourteen-bit samples into the adc_data
+	-- register and then stores them in the sample memory. The ADC it selects
+	-- for readout is the one specified by the top two bits of the sample 
+	-- address (sm_addr).
 	ADC_Controller : process (RESET, FCK) is
 		variable state, next_state : integer range 0 to 63 := 0;
 		constant end_access : integer := 50;
@@ -823,7 +829,8 @@ begin
 		-- read out one zero, fourteen data bits, and three trailing zeros. If
 		-- the ADCCAL flag is set, it reads out nine trailing zeros so as to 
 		-- initiate an ADC self-calibration. When ADCCAL is not set, the fourteen 
-		-- data bits are shifted into the adc_data register.
+		-- data bits are shifted into the adc_data register. Once we have them, we
+		-- write the sample to the sample memory.
 		elsif rising_edge(FCK) then
 			if (state = 0) then 
 				if ADCRD then 
@@ -853,72 +860,22 @@ begin
 					adc_data <= (others => '0');
 				end if;
 				if (state >= 4) and (state <= 30) and ((state mod 2) = 0) then
-					adc_data(17 downto 1) <= adc_data(16 downto 0);
+					adc_data(13 downto 1) <= adc_data(12 downto 0);
 					adc_data(0) <= SDO;
 				end if;
-				if (state = 31) and (unsigned(adc_shift) >= 1) then
-					adc_data(17 downto 1) <= adc_data(16 downto 0);
-					adc_data(0) <= '0';
-				end if;
-				if (state = 32) and (unsigned(adc_shift) >= 2) then
-					adc_data(17 downto 1) <= adc_data(16 downto 0);
-					adc_data(0) <= '0';
-				end if;
-				if (state = 33) and (unsigned(adc_shift) >= 3) then
-					adc_data(17 downto 1) <= adc_data(16 downto 0);
-					adc_data(0) <= '0';
-				end if;
-				if (state = 34) and (unsigned(adc_shift) >= 4) then
-					adc_data(17 downto 1) <= adc_data(16 downto 0);
-					adc_data(0) <= '0';
-				end if;
 			end if;
-			
+						SMWR <= to_std_logic((state = 32) and (not ADCCAL));
+
 			state := next_state;
 		end if;
 		
-		if falling_edge(FCK) then
-			BOXADD1 <= to_std_logic((state = 37) and (adc_select = "00"));
-			BOXADD2 <= to_std_logic((state = 37) and (adc_select = "01"));
-			BOXADD3 <= to_std_logic((state = 37) and (adc_select = "10"));
-			BOXADD4 <= to_std_logic((state = 37) and (adc_select = "11"));		
-		end if;
-		
-		NADC1 <= to_std_logic(not (ADCBSY and (adc_select = "00")));
-		NADC2 <= to_std_logic(not (ADCBSY and (adc_select = "01")));
-		NADC3 <= to_std_logic(not (ADCBSY and (adc_select = "10")));
-		NADC4 <= to_std_logic(not (ADCBSY and (adc_select = "11")));
+		-- The ADC we read out or calibrate is selected by the top two bits 
+		-- of the sample address.
+		NADC1 <= to_std_logic(not (ADCBSY and (sm_addr(7 downto 6) = "00")));
+		NADC2 <= to_std_logic(not (ADCBSY and (sm_addr(7 downto 6) = "01")));
+		NADC3 <= to_std_logic(not (ADCBSY and (sm_addr(7 downto 6) = "10")));
+		NADC4 <= to_std_logic(not (ADCBSY and (sm_addr(7 downto 6) = "11")));
 	end process;
-	
--- The ADC Accumulators accumulate ADC samples.
-	Accumulator1 : entity Accumulator port map (
-		DataA => box1_data,
-		DataB => adc_data,
-		Clock => FCK,
-		Reset => BOXCLR1,
-		ClockEn => BOXADD1,
-		Result => box1_data);
-	Accumulator2 : entity Accumulator port map (
-		DataA => box2_data,
-		DataB => adc_data,
-		Clock => FCK,
-		Reset => BOXCLR2,
-		ClockEn => BOXADD2,
-		Result => box2_data);
-	Accumulator3 : entity Accumulator port map (
-		DataA => box3_data,
-		DataB => adc_data,
-		Clock => FCK,
-		Reset => BOXCLR3,
-		ClockEn => BOXADD3,
-		Result => box3_data);
-	Accumulator4 : entity Accumulator port map (
-		DataA => box4_data,
-		DataB => adc_data,
-		Clock => FCK,
-		Reset => BOXCLR4,
-		ClockEn => BOXADD4,
-		Result => box4_data);
 
 -- The Message Transmitter responds to Transmit Initiate (TXI) by turning on the 
 -- radio-frequency oscillator, reading sixteen bits from one of the sensors and
@@ -1374,6 +1331,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(0);
+	TP <= ACCADD;
 
 end behavior;

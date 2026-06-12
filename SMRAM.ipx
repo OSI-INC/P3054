@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DiamondModule name="SMRAM" module="SMRAM" VendorName="Lattice Semiconductor Corporation" generator="IPexpress" date="2026 06 12 11:49:05.317" version="7.5" type="Module" synthesis="lse" source_format="VHDL">
+  <Package>
+		<File name="" type="" modified="2026 06 12 11:49:05.163"/>
+		<File name="SMRAM.lpc" type="lpc" modified="2026 06 12 11:49:04.051"/>
+		<File name="SMRAM.vhd" type="top_level_vhdl" modified="2026 06 12 11:49:04.112"/>
+		<File name="SMRAM_tmpl.vhd" type="template_vhdl" modified="2026 06 12 11:49:04.112"/>
+		<File name="tb_SMRAM_tmpl.vhd" type="testbench_vhdl" modified="2026 06 12 11:49:04.112"/>
+  </Package>
+</DiamondModule>

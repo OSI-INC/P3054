@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<DiamondModule name="Accumulator" module="Adder" VendorName="Lattice Semiconductor Corporation" generator="IPexpress" date="2026 06 08 15:23:23.114" version="3.5" type="Module" synthesis="synplify" source_format="VHDL">
-  <Package>
-		<File name="Accumulator.lpc" type="lpc" modified="2026 06 08 15:23:19.323"/>
-		<File name="Accumulator.vhd" type="top_level_vhdl" modified="2026 06 08 15:23:19.440"/>
-		<File name="Accumulator_tmpl.vhd" type="template_vhdl" modified="2026 06 08 15:23:19.440"/>
-		<File name="tb_Accumulator_tmpl.vhd" type="testbench_vhdl" modified="2026 06 08 15:23:19.464"/>
-  </Package>
-</DiamondModule>
