@@ -54,6 +54,10 @@
 -- and 1024 SPS at request of Stimulator, any request unequal to these defaulting
 -- to 1024 SPS. Tested for AC, believe now working for DC too. 
 
+-- V1.10 [11-JUN-26] Instead of four accumulators, use a sample memory made out
+-- of our last EBR block, and share accumulator at transmit time.
+
+
 library ieee;  
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -141,6 +145,9 @@ entity main is
 	constant mmu_box4h : integer := 16#26#; -- Box Filter 4 HI Byte (Read)
 	constant mmu_box4l : integer := 16#27#; -- Box Filter 4 LO Byte (Read)
 	constant mmu_boxcr : integer := 16#28#; -- Box Filter Control Register (Write)
+	constant mmu_acch  : integer := 16#29#; 
+	constant mmu_accl  : integer := 16#2A#; 
+	constant mmu_acccr : integer := 16#2B#;
 end;
 
 architecture behavior of main is

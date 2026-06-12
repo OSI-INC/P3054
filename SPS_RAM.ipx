@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DiamondModule name="SPS_RAM" module="RAM_DP" VendorName="Lattice Semiconductor Corporation" generator="IPexpress" date="2026 06 11 22:10:16.218" version="6.5" type="Module" synthesis="synplify" source_format="VHDL">
+  <Package>
+		<File name="" type="" modified="2026 06 11 22:10:16.218"/>
+		<File name="SPS_RAM.lpc" type="lpc" modified="2026 06 11 22:10:13.607"/>
+		<File name="SPS_RAM.vhd" type="top_level_vhdl" modified="2026 06 11 22:10:13.663"/>
+		<File name="SPS_RAM_tmpl.vhd" type="template_vhdl" modified="2026 06 11 22:10:13.663"/>
+		<File name="tb_SPS_RAM_tmpl.vhd" type="testbench_vhdl" modified="2026 06 11 22:10:13.705"/>
+  </Package>
+</DiamondModule>

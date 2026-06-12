@@ -50,7 +50,7 @@ set Para(install_dir) $env(TOOLRTF)
 set Para(FPGAPath) "[file join $Para(install_dir) ispfpga bin $platformpath]"
 set Para(bin_dir) "[file join $Para(install_dir) bin $platformpath]"
 
-set Para(ModuleName) "ROM"
+set Para(ModuleName) "SPS_RAM"
 set Para(Module) "RAM_DP"
 set Para(libname) machxo2
 set Para(arch_name) xo2c00
