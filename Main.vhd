@@ -107,33 +107,36 @@ entity main is
 	constant prog_bot : integer := 16#0400#;
 	constant prog_top : integer := 16#07FF#;
 	
--- Memory Map Constants, low nibble addresses in units of bytes;
+-- Memory Map Constants, low nibble addresses in units of bytes. When a location is
+-- a control register shadowed in RAM, we say it is "Write/Readback". When writing to
+-- a location initiates a process, we say it is "Write". When a location can be read
+-- but not written, we say it is "Read".
 	constant mmu_irqb  : integer := 16#00#; -- Interrupt Request Bits (Read)
-	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Read/Write)
-	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write)
+	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Write/Readback)
+	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write/Readback)
 	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Read/Write)
-	constant mmu_led   : integer := 16#04#; -- Stimulus Current (Write)
+	constant mmu_led   : integer := 16#04#; -- Lamp Switch (Write/Readback)
 	constant mmu_rst   : integer := 16#05#; -- System Reset (Write)
-	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write)
-	constant mmu_xlb   : integer := 16#07#; -- Transmit LO Byte (Write)
-	constant mmu_xch   : integer := 16#08#; -- Transmit Channel Number (Write)
-	constant mmu_xcr   : integer := 16#09#; -- Transmit Control Register (Write)
-	constant mmu_rfc   : integer := 16#0A#; -- Radio Frequency Calibration (Write)	
-	constant mmu_ccr   : integer := 16#0B#; -- Clock Control Register (Write)
-	constant mmu_dfr   : integer := 16#0C#; -- Diagnostic Flag Register (Read/Write)
+	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write/Readback)
+	constant mmu_xlb   : integer := 16#07#; -- Transmit LO Byte (Write/Readback)
+	constant mmu_xch   : integer := 16#08#; -- Transmit Channel Number (Write/Readback)
+	constant mmu_xcr   : integer := 16#09#; -- Transmit Control Register (Write/Readback)
+	constant mmu_rfc   : integer := 16#0A#; -- Radio Frequency Calibration (Write/Readback)	
+	constant mmu_ccr   : integer := 16#0B#; -- Clock Control Register (Write/Readback)
+	constant mmu_dfr   : integer := 16#0C#; -- Diagnostic Flag Register (Write/Readback)
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
 	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal(Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
-	constant mmu_i3p   : integer := 16#14#; -- Interrupt Timer Three Period (Write)
-	constant mmu_i4p   : integer := 16#15#; -- Interrupt Timer Four Period (Write)
-	constant mmu_i2c00 : integer := 16#16#; -- i2c SDA=0 SCL=0 (Write)
-	constant mmu_i2c01 : integer := 16#17#; -- i2c SDA=0 SCL=1 (Write)
-	constant mmu_i2cA0 : integer := 16#18#; -- i2c SDA=A SCL=0 (Write)
-	constant mmu_i2cA1 : integer := 16#19#; -- i2c SDA=A SCL=1 (Write)
-	constant mmu_i2cZ0 : integer := 16#1A#; -- i2c SDA=Z SCL=0 (Write)
-	constant mmu_i2cZ1 : integer := 16#1B#; -- i2c SDA=Z SCL=1 (Write)
+	constant mmu_i3p   : integer := 16#14#; -- Interrupt Timer Three Period (Write/Readback)
+	constant mmu_i4p   : integer := 16#15#; -- Interrupt Timer Four Period (Write/Readback)
+	constant mmu_i2c00 : integer := 16#16#; -- i2c SDA=0 SCL=0 (Write/Readback)
+	constant mmu_i2c01 : integer := 16#17#; -- i2c SDA=0 SCL=1 (Write/Readback)
+	constant mmu_i2cA0 : integer := 16#18#; -- i2c SDA=A SCL=0 (Write/Readback)
+	constant mmu_i2cA1 : integer := 16#19#; -- i2c SDA=A SCL=1 (Write/Readback)
+	constant mmu_i2cZ0 : integer := 16#1A#; -- i2c SDA=Z SCL=0 (Write/Readback)
+	constant mmu_i2cZ1 : integer := 16#1B#; -- i2c SDA=Z SCL=1 (Write/Readback)
 	constant mmu_i2cMR : integer := 16#1C#; -- i2C Most Recent Eight Bits (Read)
-	constant mmu_adccr : integer := 16#1D#; -- ADC Control Register (Write)
+	constant mmu_adccr : integer := 16#1D#; -- ADC Control Register (Write/Readback)
 	constant mmu_adcdh : integer := 16#1E#; -- ADC Data HI Byte (Read)
 	constant mmu_adcdl : integer := 16#1F#; -- ADC Data LO Byte (Read)
 	constant mmu_box1h : integer := 16#20#; -- Box Filter 1 HI Byte (Read)
@@ -144,10 +147,10 @@ entity main is
 	constant mmu_box3l : integer := 16#25#; -- Box Filter 3 LO Byte (Read)
 	constant mmu_box4h : integer := 16#26#; -- Box Filter 4 HI Byte (Read)
 	constant mmu_box4l : integer := 16#27#; -- Box Filter 4 LO Byte (Read)
-	constant mmu_boxcr : integer := 16#28#; -- Box Filter Control Register (Write)
-	constant mmu_acch  : integer := 16#29#; 
-	constant mmu_accl  : integer := 16#2A#; 
-	constant mmu_acccr : integer := 16#2B#;
+	constant mmu_boxcr : integer := 16#28#; -- Box Filter Control Register (Write/Readback)
+	constant mmu_acch  : integer := 16#29#; -- Accumulator HI Byte (Read)
+	constant mmu_accl  : integer := 16#2A#; -- Accumulator LO Byte (Read)
+	constant mmu_acccr : integer := 16#2B#; -- Accumulator Control Register (Write/Readback)
 end;
 
 architecture behavior of main is
@@ -442,7 +445,6 @@ begin
 				if not CPUWR then 
 					case bottom_bits is
 						when mmu_irqb => cpu_data_in <= int_bits;
-						when mmu_imsk => cpu_data_in <= int_mask;
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready
 							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Fast Clock Enabled
