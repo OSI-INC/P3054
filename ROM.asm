@@ -151,6 +151,10 @@ const op_pgoff        8 ; 0 operands
 const op_pgrst        9 ; 0 operands
 const op_shdn        10 ; 0 operands
 const op_ver         11 ; 0 operands
+const op_lon         12 ; 0 operands
+const op_loff        13 ; 0 operands
+const op_zon         14 ; 0 operands
+const op_zoff        15 ; 0 operands
 
 ; Constants: Non-Volatile Memory. The M24C16 EEPROM provides 
 ; 2K x 8 of NVM with an I2C interface. We can read 1-2048 
@@ -642,8 +646,11 @@ pop E
 
 ; The accumulator loop goes through txp samples in the sample 
 ; memory and adds each of them mult times to the accumulator.
+; We begin by moving the first sample address from B, where we
+; stored it earlier, into A, and loading it into the sample 
+; address register.
 int_xmit_acc_loop:
-  push 
+  push B
   pop A
   ld (IY),A
   push E
@@ -1165,40 +1172,57 @@ call get_cmd_byte
 
 ld (Sack_key),A
 
-; The stimulus stop instruction. All we are going to do is
-; turn off the LED.
+; The lamp-off instruction. All we are going to do is turn off 
+; the LED.
 
-check_stop_stim:
+check_loff:
 ld A,(ccmdb)
-sub A,op_stop
-jp nz,check_stop_stim_end
-ld A,0                ; Clear A and
+sub A,op_loff
+jp nz,check_loff_end
+ld A,0x00             ; Clear A and
 ld (mmu_led),A        ; turn off lamp.
-call annc_ack         ; Acknowledge the stop.
+call annc_ack         ; Acknowledge.
 jp cmd_loop
-check_stop_stim_end:
+check_loff_end:
 
-; The stimulus start instruction. All we do is turn on the 
-; LED. But we mimic the behavior of the A3041 reading out
-; all the stimulus characteristics.
+; The lamp-on instruction. We turn on the LED.
 
-check_start:
+check_lon:
 ld A,(ccmdb)
-sub A,op_start
-jp nz,check_start_end
-call get_cmd_byte    ; Read stimulus current.
+sub A,op_lon
+jp nz,check_lon_end
 ld A,0x01            ; Load a one for bit zero
 ld (mmu_led),A       ; and turn on the LED.
-call get_cmd_byte    ; Read pulse length byte one.
-call get_cmd_byte    ; Read pulse length byte zero.
-call get_cmd_byte    ; Read interval length byte one.
-call get_cmd_byte    ; Read interval length byte zero.
-call get_cmd_byte    ; Read stimulus length byte one.
-call get_cmd_byte    ; Read stimulus length byte zero.
-call get_cmd_byte    ; Read randomization byte.
-call annc_ack        ; Acknowledge the start.
+call annc_ack        ; Acknowledge.
 jp cmd_loop
-check_start_end:
+check_lon_end:
+
+; The impedance measurement off instruction. We open the impedance
+; measurement switch.
+
+check_zoff:
+ld A,(ccmdb)
+sub A,op_zoff
+jp nz,check_zoff_end
+ld A,0x00             ; Load a zero for bit zero
+ld (mmu_msr),A        ; and open the switch.
+call annc_ack         ; Acknowledge the stop.
+jp cmd_loop
+check_zoff_end:
+
+; The impedance measurement on instruction. We close the impedance
+; measurement switch.
+
+check_zon:
+ld A,(ccmdb)
+sub A,op_zon
+jp nz,check_zon_end
+ld A,0x01            ; Load a one for bit zero
+ld (mmu_msr),A       ; and close the switch.
+call annc_ack        ; Acknowledge.
+jp cmd_loop
+check_zon_end:
+
 
 ; Start data transmission.
 

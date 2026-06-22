@@ -244,6 +244,7 @@ architecture behavior of main is
 		RBI, -- Receive Command Byte Initiate
 		RBD, -- Receive Command Byte Done
 		BYTERR, -- Byte Error
+		CRCERR, -- Checksum Error
 		BYTS, -- Command Byte Strobe
 		CBS -- Command Bit Strobe (CBS)
 		: boolean := false; 
@@ -1207,6 +1208,49 @@ begin
 		end if;
 	end process;
 
+-- This process runs all the bits of a command through a sixteen-bit linear 
+-- feedback shift register, with local name "crc" for "cyclic redundancy check". 
+-- We preset crc to all ones. The final sixteen bits of every command are chosen 
+-- so that they reset the crc register to all zeros. If crc is not zero at the 
+-- end of a command, there was some error during reception. We use the Command
+-- Bit Strobe (CBS) signal to clock crc, because CBS is asserted only when a command 
+-- data bit is received, not when we receive a start or stop bit.
+	Error_Check : process (RESET, RCK) is
+		variable crc, next_crc : std_logic_vector(15 downto 0);
+	begin
+		if RESET = '1' then
+			crc := (others => '1');
+		elsif rising_edge(RCK) then
+			if ICMD then
+				-- When a new command transmission starts, we preload the cyclic redundancy
+				-- check register to all ones.
+				crc := (others => '1');
+			else
+				-- We use Command Bit Strobe (CBS) to clock each command bit into the CRC.
+				-- The transmitter calculates the checksum with zeros in the last
+				-- sixteen bits, reverses the order of these checksum bits, and sends
+				-- them as the last two bytes of the actual transmission, instead of the
+				-- zeros it used when it calculated its own checksum. These last sixteen
+				-- bits, thus obtained, will reset the receiver CRC to zero, provided there
+				-- has been no corruption of the data on the way.
+				if CBS then
+					for i in 0 to 9 loop next_crc(i) := crc(i+1); end loop;
+					next_crc(10) := crc(11) xor crc(0);
+					next_crc(11) := crc(12);
+					next_crc(12) := crc(13) xor crc(0);
+					next_crc(13) := crc(14) xor crc(0);
+					next_crc(14) := crc(15);
+					next_crc(15) := to_std_logic(RPS) xor crc(0);	
+					crc := next_crc;
+				end if;		
+			end if;
+		end if;
+		
+		-- The CRCERR flag tells us when the CRC is not zero. It will be zero when it
+		-- has been reset by the two bytes of a correct checksum.
+		CRCERR <= (crc /= "0000000000000000");
+	end process;
+
 -- Command Memory
 	Command_Memory : entity CMD_FIFO port map (
 		Reset => CMRST, 
@@ -1302,10 +1346,10 @@ begin
 			end if;		
 			
 			-- There are two possible sources of error: a failure in the cyclic redundancy
-			-- check (CRCERR) or an error in the structure of a command byte (BYTERR). 
-			-- If either is asserted, we go back to idle.
+			-- check (CRCERR) or an error in the structure of a command byte (BYTERR). If
+			-- either is asserted, we go back to idle and ignore the command.
 			if (state = check_cmd_s) then
-				if BYTERR then 
+				if BYTERR or CRCERR then 
 					next_state := idle_s;
 				else 
 					next_state := complete_s;
