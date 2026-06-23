@@ -82,6 +82,9 @@ const x4_mult    0x0313 ; X4 Repeat Count, applies during accumulation.
 const UPrun      0x0322 ; Running
 const UPinit     0x0323 ; Initialize
 
+; Scratch space for memory transfers.
+const scratch    0x0340 ; A sixty-four bit scratchpad.
+
 ; Constants: Status Register Bit Masks
 const sr_cmdrdy    0x01 ; Command Ready
 const sr_enfck     0x02 ; Enable Fast Clock
@@ -126,7 +129,7 @@ const min_tcf        72 ; Minimum TCK periods per half RCK period
 const initial_tcd    15 ; Max possible value of TCK divisor
 const tx_delay       40 ; Wait time for sample transmission in TCK periods
 const wp_delay      255 ; Warm-up delay for auxiliary messages in TCK periods
-const num_vars       64 ; Number of variable bytes to clear at start
+const num_vars      255 ; Number of variable bytes to clear at start
 const uprog_tick    163 ; User program interrupt period minus one
 const id_delay       33 ; Identification spacing in TCK periods
 const sample_period  31 ; Sample period in RCK periods
@@ -230,12 +233,6 @@ jp main
 jp interrupt
 
 ; ------------------------------------------------------------
-; Include files. These must follow the main and interrupt jumps.
-
-include "I2C.asm"
-          
-
-; ------------------------------------------------------------
 ; Calibrate the transmit clock frequency. We take the CPU out
 ; of boost, turn off the transmit clock, and repeat a cycle of
 ; setting the transmit clock divisor and running the transmit
@@ -277,7 +274,12 @@ push C
 push H
 push L
 
-; Read out result.
+; Read out sixteen-bit temperature sensor result. We have our 
+; i2c_rd routine read them from the sensor and place them 
+; directly into their two locations in the main program memory.
+; We have to add an offset to the high byte so as to change the 
+; signed integer measurement into an unsigned offset integer for 
+; which 32768 is zero. 
 
 ld A,tmp_addr
 push A
@@ -285,30 +287,38 @@ pop H
 ld A,tmp_treg
 push A
 pop L
-call i2c_rd16
-push C
-pop A
-add A,off_16bs   
-ld (temp_hi),A
-push B
-pop A
-ld (temp_lo),A
-
-; Initiate conversion.
-
-ld A,tmp_addr
+ld A,2
 push A
-pop H
+pop C
+ld IX,temp_hi
+call i2c_rd
+dec IX
+dec IX
+ld A,(IX)
+add A,off_16bs   
+ld (IX),A
+
+; Initiate a conversion, which we do by writing two bytes to
+; the sensor's configuration register. We first put these 
+; two bytes in the scratchpad so that the i2c routine will 
+; read them from main program memory and write them to the
+; sensor. We already have the sensor address in H. We load
+; the configuration register address into L.
+
 ld A,tmp_creg
 push A
 pop L
+ld IX,scratch
 ld A,tmp_oneh
+ld (IX),A
+inc IX
+ld A,tmp_onel
+ld (IX),A
+dec IX
+ld A,2
 push A
 pop C
-ld A,tmp_onel
-push A
-pop B
-call i2c_wr16
+call i2c_wr
 
 pop L
 pop H
@@ -347,10 +357,13 @@ pop H
 ld A,bma_pconf
 push A
 pop L
+ld IX,scratch
 ld A,bma_pwrsv
+ld (IX),A
+ld A,1
 push A
 pop C
-call i2c_wr8
+call i2c_wr
 
 ; Enable or disable data acquisition by writing to the PWR_CTRL 
 ; register.
@@ -359,9 +372,11 @@ ld A,bma_pctrl
 push A
 pop L
 ld A,bma_disable
+ld (IX),A
+ld A,1
 push A
 pop C
-call i2c_wr8
+call i2c_wr
 
 ; Wait for the sensor to configure.
 
@@ -374,9 +389,11 @@ ld A,bma_aconf
 push A
 pop L
 ld A,bma_25hz
+ld (IX),A
+ld A,1
 push A
 pop C
-call i2c_wr8
+call i2c_wr
 
 ; Configure for +-16 g range.
 
@@ -384,9 +401,11 @@ ld A,bma_arange
 push A
 pop L
 ld A,bma_16g
+ld (IX),A
+ld A,1
 push A
 pop C
-call i2c_wr8
+call i2c_wr
 
 pop L
 pop H
@@ -681,13 +700,17 @@ pop H
 ld A,0x00
 push A
 pop L
-call i2c_rd16
-push C
-pop A
-ld (mmu_xhb),A
-push B
-pop A
+ld IX,scratch
+ld A,2
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
 ld (mmu_xlb),A
+dec IX
+ld A,(IX)
+ld (mmu_xhb),A
 jp int_xmit_rdy
 
 ; Transmit an accelerometer register.
@@ -699,14 +722,16 @@ pop H
 ld A,bma_x
 push A
 pop L
-call i2c_rd16
-push B
-pop A
+ld IX,mmu_xhb
+ld A,2
+push A
+pop C
+call i2c_rd
+dec IX
+dec IX
+ld A,(IX)
 add A,off_16bs   
-ld (mmu_xhb),A
-push C
-pop A
-ld (mmu_xlb),A
+ld (IX),A
 jp int_xmit_rdy
 
 ; Transmit the state of the LED, and also, hidden
@@ -1223,7 +1248,6 @@ call annc_ack        ; Acknowledge.
 jp cmd_loop
 check_zon_end:
 
-
 ; Start data transmission.
 
 check_xon:
@@ -1504,24 +1528,13 @@ seti
 ld HL,stack_bot
 ld SP,HL
 
-; Initialize registers.
-ld A,0
-push A
-pop B
-push A
-pop C
-push A
-pop D
-push A
-pop E
-push A
-pop H
-push A
-pop L
+; Turn on the lamp and wait. This is the first start-up flash.
 
-; Initialize variable locations to zero. This activity also serves
-; as a boot-up delay to let the power supply settle before we
-; calibrate the transmit clock. We are clearing all flags.
+ld A,0x01
+ld (mmu_led),A
+call flash_delay
+
+; Initialize variable locations to zero.
 
 ld IX,mvar_bot
 ld A,num_vars
@@ -1534,10 +1547,27 @@ inc IX
 dec B
 jp nz,main_var_init_loop
 
+; Write numbers 0-15 to the first sixteen  scratch locations.
+
+ld IX,scratch
+ld A,0
+nvm_loop:
+ld (IX),A
+inc IX
+add A,16
+jp nz,nvm_loop
+
 ; Initialize certain variables to values other than zero.
 
 ld A,id_lo         ; Set the primary channel number to the
 ld (xmit_ch),A     ; low byte of the device identifier.
+
+; Turn off the lamp. This is the end of the first start-up
+; flash.
+
+ld A,0x00
+ld (mmu_led),A
+call flash_delay
 
 ; Configure control space registers.
 
@@ -1561,10 +1591,8 @@ ld (x1_mult),A     ; Clear the X1 multiplier.
 ld (x2_mult),A     ; Clear the X2 multiplier.
 ld (x3_mult),A     ; Clear the X3 multiplier.
 ld (x4_mult),A     ; Clear the X4 multiplier.
-
 ld A,0xFF          ; Prepare ones to write.
 ld (mmu_irst),A    ; Reset all interrupts.
-
 ld A,f_low         ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
 
@@ -1574,12 +1602,16 @@ ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
 ld A,ret_code      ; Put a return opcode at first byte
 ld (IY),A          ; in user program, in case of enable.
 
-; Calibrate the transmit.
+; Turn on the lamp. This is the start of the second start-up flash.
+
+ld A,0x01
+ld (mmu_led),A
+call flash_delay
+
+; Calibrate the transmit clock, accelerometer (BMA423) and thermometer
+; (TMP117).
 
 call calibrate_tck
-
-; Calibrate the BMA423 accelerometer and the TMP117 thermometer.
-
 call bma_config
 call tmp_single
 
@@ -1591,6 +1623,13 @@ ld (tmp_chb),A
 ld A,0
 ld (tmp_clb),A
 
+; Turn off the lamp. This is the end of the second start-up
+; flash.
+
+ld A,0x00
+ld (mmu_led),A
+call flash_delay
+
 ; Put the CPU into boost mode and call the ADC calibration routine.
 ; Afterwards, move out of boost.
 
@@ -1600,50 +1639,28 @@ call adc_calib
 ld A,0x00
 ld (mmu_ccr),A 
 
-; Write some stuff to the non-volatile memory, filling the first
-; sixteen locations.
+; Turn on the lamp. This is the start of the third start-up flash.
 
-ld A,0x00
-push A
-pop L
+ld A,0x01
+ld (mmu_led),A
+call flash_delay
+
+; Write first sixteen locations in the NVM.
+
 ld A,nvm_addr
 push A
 pop H
-nvm_init:
-push L
-pop A
-rlc A
-rlc A
-rlc A
-rlc A
-push A
-pop C
-call i2c_wr8
-push L
-pop A
-inc A
+ld A,0x00
 push A
 pop L
-sub A,15
-jp z,nvm_init
+ld IX,scratch
+ld A,16
+push A
+pop C
+call i2c_wr
 
-; Turn on and off the lamp.
+; Turn off the lamp. This is the end of the third start-up flash.
 
-ld A,0x01
-ld (mmu_led),A
-call flash_delay
-ld A,0x00
-ld (mmu_led),A
-call flash_delay
-ld A,0x01
-ld (mmu_led),A
-call flash_delay
-ld A,0x00
-ld (mmu_led),A
-call flash_delay
-ld A,0x01
-ld (mmu_led),A
-call flash_delay
 ld A,0x00
 ld (mmu_led),A
 
@@ -1666,6 +1683,454 @@ main_nocmd:
 
 jp main_loop
 
-; ---------------------------------------------------------------
+; ------------------------------------------------------------
+; I2C Write. Write one or more bytes to an I2C device. The routine
+; assumes the device auto-increments its sub-address after each
+; read, so that we will be writing to consecutive bytes from its
+; internal address space. We pass the device selection address 
+; in H, the internal sub-address in L, the number of bytes to be
+; written in C, and a pointer to the data bytes in IX. Registers H and 
+; L are unchanged, but IX will be incremented and C should be zero.
+; The routine alters A.
 
+i2c_wr:
 
+; Start code (ST)
+
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2c01),A  ; 3
+ld (mmu_i2c00),A  ; 3
+
+; Write seven-bit device address and set the WRITE flag (SAD+W). 
+; The device address is in H. We rotate the address left and fill 
+; the least significant bit with a zero to indicate that we are 
+; going to write a byte after we send the device address. That 
+; byte is going to be the sub-address.
+
+push H            ; 1
+pop A             ; 2
+sla A             ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; Accept slave acknowledgement (SAK). But note that we do not 
+; bother to check the slave acknowledgement. We just assume it
+; occurs.
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Write the eight-bit sub-address (SUB), which has been passed in 
+; Register L, to the slave, which should now be listening after
+; being selected by the device address.
+
+push L            ; 1
+pop A             ; 2
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Write consecutive bytes to the slave. The byte to be written is pointed
+; to by IX and the number of bytes remaining to be written is in Register C.
+; We assume that C > 0. If not, we will write 256 bytes.
+
+i2c_wr_loop:
+
+ld A,(IX)         ; 2
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; I2C: Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Increment IX and decrement C. If C is not zero, loop
+; back and write another bytes.
+inc IX
+dec C
+jp nz,i2c_wr_loop
+
+; I2C: Stop code (SP).
+
+ld (mmu_i2c00),A  ; 3
+ld (mmu_i2c01),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+     
+ret
+
+; ------------------------------------------------------------
+; I2C Read. Read one or more bytes from an I2C device. The routine
+; assumes the device auto-increments its sub-address after each
+; read, so that we will be reading consecutive bytes from its
+; internal address space. We pass the device selection address 
+; in H, the internal sub-address in L, the number of bytes to be
+; read in C, and a pointer to the destination of the bytes in IX. 
+; Registers H and L are unchanged, but IX will be incremented and 
+; C should be zero. The routine alters A.
+
+i2c_rd:
+
+; Start code (ST)
+
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2c01),A  ; 3
+ld (mmu_i2c00),A  ; 3
+
+; Write seven-bit device address and set the WRITE flag (SAD+W). 
+; The device address is in H. We rotate the address left and fill 
+; the least significant bit with a zero to indicate that we are 
+; going to write a byte after we send the device address. That 
+; byte is going to be the sub-address.
+
+push H            ; 1
+pop A             ; 2
+sla A             ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Write eight-bit sub-address (SUB), which is stored in L.
+
+push L            ; 1
+pop A             ; 2
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Repeat start code (RS). This code tells the bus that we are
+; keeping control and continuing.
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2c01),A  ; 3
+ld (mmu_i2c00),A  ; 3
+
+; We write seven-bit device address again, but this time with
+; the READ flag (SAD+R) set. We shift the device address left
+; and set the least significant bit to one for !WRITE so that
+; we have READ.
+
+push H            ; 1
+pop A             ; 2
+sla A             ; 1
+or A,0x01         ; 2
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+; Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Read consecutive bytes from the slave. The destination of the byte in 
+; our process memory is given by IX and the number of bytes remaining to 
+; be read is in Register C. We assume that C > 0. If not, we will read 
+; 256 bytes. The individual bit reads are done with writes of any value
+; to i2cZ0, i2cZ1, and i2cZ0. On a write to i2cZ1 the I2C data line is 
+; shifted into the i2C data byte in the firmware. We will this byte
+; after eight bits have been read.
+
+i2c_rd_loop:
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Transfer the data byte to A and write to process memory at 
+; location IX.
+
+ld A,(mmu_i2cMR)  ; 4
+ld (IX),A
+
+; Increment IX and decrement C. If C is zero, jump to NMAK. 
+
+inc IX
+dec C
+jp z,i2c_rd_nmak
+
+; We still have bytes to read, so ransmit master acknowledgement 
+; (MAK) and jump to the beginning of our read loop.
+
+ld (mmu_i2c00),A  ; 3
+ld (mmu_i2c01),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+jp i2c_rd_loop
+
+; Transmit not master acknowledgement (NMAK).
+
+i2c_rd_nmak:
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Now we are done, so release the bus with a stop code (SP).
+
+ld (mmu_i2c00),A  ; 3
+ld (mmu_i2c01),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+   
+ret

@@ -1,19 +1,25 @@
 ; ------------------------------------------------------------
-; I2C Eight-Bit Write. Write to one eight-bit register 
-; location on the sensor. We pass the I2C device address in 
-; Register H, the sub-address in Register L, and the eight
-; bits to write in Register C. None of H, L, or C are modified.
+; I2C Write. Write one or more bytes to an I2C device. The routine
+; assumes the device auto-increments its sub-address after each
+; read, so that we will be writing to consecutive bytes from its
+; internal address space. We pass the device selection address 
+; in H, the internal sub-address in L, the number of bytes to be
+; written in C, and a pointer to the data bytes in IX. Registers H and 
+; L are unchanged, but IX will be incremented and C should be zero.
 
-i2c_wr8:
+i2c_wr:
        
-; I2C: Start code (ST)
+; Start code (ST)
 
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2c01),A  ; 3
 ld (mmu_i2c00),A  ; 3
 
-; I2C: Write seven-bit device address and !WRITE flag (SAD+W).
-; The device address is in Register H.
+; Write seven-bit device address and set the WRITE flag (SAD+W). 
+; The device address is in H. We rotate the address left and fill 
+; the least significant bit with a zero to indicate that we are 
+; going to write a byte after we send the device address. That 
+; byte is going to be the sub-address.
 
 push H            ; 1
 pop A             ; 2
@@ -57,14 +63,17 @@ ld (mmu_i2cA0),A  ; 3
 ld (mmu_i2cA1),A  ; 3
 ld (mmu_i2cA0),A  ; 3
 
-; I2C: Accept slave acknowledgement (SAK).
+; Accept slave acknowledgement (SAK). But note that we do not 
+; bother to check the slave acknowledgement. We just assume it
+; occurs.
 
 ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
 
-; I2C: Write eight-bit sub-address (SUB), which has
-; been passed in Register L.
+; Write the eight-bit sub-address (SUB), which has been passed in 
+; Register L, to the slave, which should now be listening after
+; being selected by the device address.
 
 push L            ; 1
 pop A             ; 2
@@ -107,61 +116,69 @@ ld (mmu_i2cA0),A  ; 3
 ld (mmu_i2cA1),A  ; 3
 ld (mmu_i2cA0),A  ; 3
 
+; Accept slave acknowledgement (SAK).
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Write consecutive bytes to the slave. The byte to be written is pointed
+; to by IX and the number of bytes remaining to be written is in Register C.
+; We assume that C > 0. If not, we will write 256 bytes.
+
+i2c_wr_loop:
+
+ld A,(IX)         ; 2
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
+rl A              ; 1
+ld (mmu_i2cA0),A  ; 3
+ld (mmu_i2cA1),A  ; 3
+ld (mmu_i2cA0),A  ; 3
+
 ; I2C: Accept slave acknowledgement (SAK).
 
 ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
 
-; I2C: Write the first eight data bits, which we have passed
-; in Register C.
-
-push C            ; 1
-pop A             ; 2
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-; I2C: Accept slave acknowledgement (SAK).
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
+; Increment IX and decrement C. If C is not zero, loop
+; back and write another bytes.
+inc IX
+dec C
+jp nz,i2c_wr_loop
 
 ; I2C: Stop code (SP).
 
@@ -173,22 +190,28 @@ ret
 
 
 ; ------------------------------------------------------------
-; I2C Sixteen-Bit Write. Write to one sixteen-bit register 
-; location on the sensor. We pass the I2C device address in 
-; Register H, the sub-address in Register L, first eight bits
-; to write in Register C and final eight bits in Register B.
-; None of H, L, C, or B are modified.
+; I2C Read. Read one or more bytes from an I2C device. The routine
+; assumes the device auto-increments its sub-address after each
+; read, so that we will be reading consecutive bytes from its
+; internal address space. We pass the device selection address 
+; in H, the internal sub-address in L, the number of bytes to be
+; read in C, and a pointer to the destination of the bytes in IX. 
+; Registers H and L are unchanged, but IX will be incremented and 
+; C should be zero.
 
-i2c_wr16:
-       
-; I2C: Start code (ST)
+i2c_rd:
+
+; Start code (ST)
 
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2c01),A  ; 3
 ld (mmu_i2c00),A  ; 3
 
-; I2C: Write seven-bit device address and !WRITE flag (SAD+W).
-; The device address is in Register H.
+; Write seven-bit device address and set the WRITE flag (SAD+W). 
+; The device address is in H. We rotate the address left and fill 
+; the least significant bit with a zero to indicate that we are 
+; going to write a byte after we send the device address. That 
+; byte is going to be the sub-address.
 
 push H            ; 1
 pop A             ; 2
@@ -232,14 +255,13 @@ ld (mmu_i2cA0),A  ; 3
 ld (mmu_i2cA1),A  ; 3
 ld (mmu_i2cA0),A  ; 3
 
-; I2C: Accept slave acknowledgement (SAK).
+; Accept slave acknowledgement (SAK).
 
 ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
 
-; I2C: Write eight-bit sub-address (SUB), which has
-; been passed in Register L.
+; Write eight-bit sub-address (SUB), which is stored in L.
 
 push L            ; 1
 pop A             ; 2
@@ -282,245 +304,24 @@ ld (mmu_i2cA0),A  ; 3
 ld (mmu_i2cA1),A  ; 3
 ld (mmu_i2cA0),A  ; 3
 
-; I2C: Accept slave acknowledgement (SAK).
+; Accept slave acknowledgement (SAK).
 
 ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
 
-; I2C: Write the first eight data bits, which we have passed
-; in Register C.
-
-push C            ; 1
-pop A             ; 2
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-; I2C: Accept slave acknowledgement (SAK).
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-; I2C: Write the next eight data bits, which we have passed
-; in Register B.
-
-push B            ; 1
-pop A             ; 2
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-; I2C: Accept slave acknowledgement (SAK).
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-; I2C: Stop code (SP).
-
-ld (mmu_i2c00),A  ; 3
-ld (mmu_i2c01),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-     
-ret
-
-
-; ------------------------------------------------------------
-; I2C Sixteen-Bit Read. Read two consecutive bytes from the sensor
-; address map. We pass the I2C device address in Register H and the
-; sub-address in Register L. The first byte read will be returned
-; in C, the second in B. Neither H nor L is modified.
-
-i2c_rd16:
-
-; I2C: Start code (ST)
-
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2c01),A  ; 3
-ld (mmu_i2c00),A  ; 3
-
-; I2C: Write seven-bit device address and !WRITE flag (SAD+W). The
-; device address is in Register H.
-
-push H            ; 1
-pop A             ; 2
-sla A             ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-; I2C: Accept slave acknowledgement (SAK).
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-; I2C: Write eight-bit sub-address (SUB), which is
-; stored in Register L.
-
-push L            ; 1
-pop A             ; 2
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-rl A              ; 1
-ld (mmu_i2cA0),A  ; 3
-ld (mmu_i2cA1),A  ; 3
-ld (mmu_i2cA0),A  ; 3
-
-; I2C: Accept slave acknowledgement (SAK).
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-; I2C: Repeat start code (RS)
+; Repeat start code (RS). This code tells the bus that we are
+; keeping control and continuing.
 
 ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2c01),A  ; 3
 ld (mmu_i2c00),A  ; 3
 
-; I2C: Write seven-bit device address again, this time with
-; a READ flag (SAD+R).
+; We write seven-bit device address again, but this time with
+; the READ flag (SAD+R) set. We shift the device address left
+; and set the least significant bit to one for !WRITE so that
+; we have READ.
 
 push H            ; 1
 pop A             ; 2
@@ -565,25 +366,21 @@ ld (mmu_i2cA0),A  ; 3
 ld (mmu_i2cA1),A  ; 3
 ld (mmu_i2cA0),A  ; 3
 
-; I2C: Accept slave acknowledgement (SAK).
+; Accept slave acknowledgement (SAK).
 
 ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
 
-; I2C: Read eight data bits from slave (DATA).
+; Read consecutive bytes from the slave. The destination of the byte in 
+; our process memory is given by IX and the number of bytes remaining to 
+; be read is in Register C. We assume that C > 0. If not, we will read 
+; 256 bytes. The individual bit reads are done with writes of any value
+; to i2cZ0, i2cZ1, and i2cZ0. On a write to i2cZ1 the I2C data line is 
+; shifted into the i2C data byte in the firmware. We will this byte
+; after eight bits have been read.
 
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
+i2c_rd_loop:
 
 ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
@@ -605,65 +402,47 @@ ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
 
-; Transfer the first data byte to C.
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+ld (mmu_i2cZ0),A  ; 3
+ld (mmu_i2cZ1),A  ; 3
+ld (mmu_i2cZ0),A  ; 3
+
+; Transfer the data byte to A and write to process memory at 
+; location IX.
 
 ld A,(mmu_i2cMR)  ; 4
-push A            ; 1
-pop C             ; 2
+ld (IX),A
 
-; I2C: Transmit master acknowledgement (MAK).
+; Increment IX and decrement C. If C is zero, jump to NMAK. 
+
+inc IX
+dec C
+jp z,i2c_rd_nmak
+
+; We still have bytes to read, so ransmit master acknowledgement 
+; (MAK) and jump to the beginning of our read loop.
 
 ld (mmu_i2c00),A  ; 3
 ld (mmu_i2c01),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
+jp i2c_rd_loop
 
-; I2C: Read eight data bits from slave (DATA).
+; Transmit not master acknowledgement (NMAK).
 
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
+i2c_rd_nmak:
 
 ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
 
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-; Transfer the second data byte to B.
-
-ld A,(mmu_i2cMR)  ; 4
-push A            ; 1
-pop B             ; 2
-
-; I2C: Transmit not master acknowledgement (NMAK).
-
-ld (mmu_i2cZ0),A  ; 3
-ld (mmu_i2cZ1),A  ; 3
-ld (mmu_i2cZ0),A  ; 3
-
-; I2C: Stop code (SP).
+; Now we are done, so release the bus with a stop code (SP).
 
 ld (mmu_i2c00),A  ; 3
 ld (mmu_i2c01),A  ; 3
