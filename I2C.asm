@@ -6,9 +6,16 @@
 ; in H, the internal sub-address in L, the number of bytes to be
 ; written in C, and a pointer to the data bytes in IX. Registers H and 
 ; L are unchanged, but IX will be incremented and C should be zero.
+; The routine leaves all other registers intact.
 
 i2c_wr:
-       
+
+; Push A and F so we don't trash them. They are not used to pass
+; arguments into the routine.
+
+push F
+push A
+
 ; Start code (ST)
 
 ld (mmu_i2cZ1),A  ; 3
@@ -186,8 +193,12 @@ ld (mmu_i2c00),A  ; 3
 ld (mmu_i2c01),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
      
-ret
+; Restore A and F.
 
+pop A
+pop F
+
+ret
 
 ; ------------------------------------------------------------
 ; I2C Read. Read one or more bytes from an I2C device. The routine
@@ -197,9 +208,15 @@ ret
 ; in H, the internal sub-address in L, the number of bytes to be
 ; read in C, and a pointer to the destination of the bytes in IX. 
 ; Registers H and L are unchanged, but IX will be incremented and 
-; C should be zero.
+; C should be zero. The routine leaves all other registers intact.
 
 i2c_rd:
+
+; Push A and F so we don't trash them. They are not used to pass
+; arguments into the routine.
+
+push F
+push A
 
 ; Start code (ST)
 
@@ -447,5 +464,10 @@ ld (mmu_i2cZ0),A  ; 3
 ld (mmu_i2c00),A  ; 3
 ld (mmu_i2c01),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
-     
+  
+; Pop A and F.
+
+pop A
+pop F
+ 
 ret
