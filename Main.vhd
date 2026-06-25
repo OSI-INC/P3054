@@ -56,7 +56,7 @@
 
 -- V1.10 [11-JUN-26] Instead of four accumulators, use a sample memory made out
 -- of our last EBR block, and share a single accumulator to calculate the transmit
--- sample value at transmit time. Logic size drops from 1250 to 1120 LUTs.
+-- sample value at transmit time. Logic size drops from 1250 to 1125 LUTs.
 
 
 library ieee;  
@@ -1375,6 +1375,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(0);
+	TP <= df_reg(2);
 
 end behavior;

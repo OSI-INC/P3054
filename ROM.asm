@@ -90,12 +90,15 @@ const x2_mult    0x0311 ; X2 Repeat Count, applies during accumulation.
 const x3_mult    0x0312 ; X3 Repeat Count, applies during accumulation.
 const x4_mult    0x0313 ; X4 Repeat Count, applies during accumulation.
 
+; Variables: Main Program, Non-Volatile Memory
+const nvm_cntr   0x0316 ; Counter for NVM transmission
+
 ; Variables: Main Program, User Program Control
 const UPrun      0x0322 ; Running
 const UPinit     0x0323 ; Initialize
 
 ; Scratch space for memory transfers.
-const scratch    0x0340 ; A sixty-four bit scratchpad.
+const scratch    0x0380 ; A 128-byte scratchpad.
 
 ; Constants: Status Register Bit Masks
 const sr_cmdrdy    0x01 ; Command Ready
@@ -144,11 +147,13 @@ const wp_delay      255 ; Warm-up delay for auxiliary messages in TCK periods
 const num_vars      255 ; Number of variable bytes to clear at start
 const uprog_tick    163 ; User program interrupt period minus one
 const id_delay       33 ; Identification spacing in TCK periods
+const ms_tick        33 ; One millisecond in RCK periods
 const sample_period  31 ; Sample period in RCK periods
 const adc_rdly       16 ; Clock cycles for ADC readout
 const adc_cdly       22 ; Clock cycles for ADC self-calibration
 const tmp_period      8 ; Temperature update period in 1/4 s
-const flash_len      30 ; Lamp flash time in 1/128 s
+const lon_ms         20 ; Lamp on time in milliseconds
+const loff_ms       200 ; Lamp off time in milliseconds
 
 ; Constants: Instruction Codes
 const ret_code     0x0A ; Return from subroutine instruction
@@ -175,10 +180,10 @@ const op_zoff        15 ; 0 operands
 ; 2K x 8 of NVM with an I2C interface. We can read 1-2048 
 ; bytes in one read cycle. We can write 1-16 bytes in one write 
 ; cycle. The device address consists only of four bits, the lower 
-; three bits of the seven-biit I2C address are used to select one 
+; three bits of the seven-bit I2C address are used to select one 
 ; of eight 256-byte blocks within the EEPROM.
-const nvm_addr     0x50 ; I2C address, top nibble
-const nvm_hmask    0x0F ; Mask for bottom nibble address
+const nvm_addr     0x50 ; Device address.
+const nvm_amask    0x07 ; Mask for bottom three bits.
 
 ; Constants: Temperature Sensor. The TMP117 provides sixteen-bit 
 ; read and write registers to the I2C bus.
@@ -196,9 +201,9 @@ const tmp_fastl    0x00 ; Fast measurement, LSB
 ; say so.
 const bma_addr     0x18 ; I2C address
 const bma_id       0x00 ; Identifier register
-const bma_x        0x12 ; ACC_X register, two bytes
-const bma_y        0x14 ; ACC_Y register, two bytes
-const bma_z        0x16 ; ACC_Z register, two bytes
+const bma_x        0x12 ; ACC_X register, two bytes, little-endian
+const bma_y        0x14 ; ACC_Y register, two bytes, little-endian
+const bma_z        0x16 ; ACC_Z register, two bytes, little-endian
 const bma_time0    0x18 ; SENSOR_TIME_0 register
 const bma_time1    0x19 ; SENSOR_TIME_1 register
 const bma_time2    0x1A ; SENSOR_TIME_2 register
@@ -212,6 +217,7 @@ const bma_2g       0x00 ; For ACC_RANGE, +-2g
 const bma_4g       0x01 ; For ACC_RANGE, +-4g
 const bma_8g       0x02 ; For ACC_RANGE, +-8g
 const bma_16g      0x03 ; For ACC_RANGE, +-16g
+const bma_1hz      0x01 ; For ACC_CONF, 1 Hz, no averaging, no filter
 const bma_25hz     0x06 ; For ACC_CONF, 25 Hz, no averaging, no filter
 const bma_100hz    0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
 const bma_enable   0x04 ; For PWR_CTRL, enable data acquisition.
@@ -244,14 +250,108 @@ start:
 jp main
 jp interrupt
 
+; ------------------------------------------------------------
+; A multi-millisecond delay. Pass the number of milliseconds
+; in A. If A=0, the delay will be 256 ms.
+;
+; MODE: Slow mode only.
+;
+delay_ms:
+push F
+push A
+push B
+
+push A
+pop B
+
+ld A,(mmu_dfr)
+or A,bit2_mask
+ld (mmu_dfr),A
+
+delay_ms_n:
+ld A,ms_tick
+sub A,7
+dly A
+dec B
+jp nz,delay_ms_n
+
+ld A,(mmu_dfr)
+and A,bit2_clr
+ld (mmu_dfr),A
+
+pop B
+pop A
+pop F
+ret
+
+; ------------------------------------------------------------
+; Write N bytes to the non-volatile memory, where N is 1-256.
+; To write N bytes, we pass 0 in A. To write 1-255 we pass N
+; in A. In IX we pass a pointer to the first byte to be written.
+; In HL we pass the sub-address to be written. Upon return, IX
+; points to the location after the last byte written and HL 
+; points to the sub-address after the last sub-address written.
+;
+; MODE: Slow mode only.
+;
+nvm_wr:
+
+push F
+push A
+push B
+push C
+push D
+
+push H
+pop A
+and A,nvm_amask
+or A,nvm_addr
+push A
+pop H
+
+ld A,16
+push A
+pop C
+
+push A
+pop D
+
+nvm_wr_loop:
+call i2c_wr
+ld A,6
+call delay_ms
+push C
+pop B
+push L
+pop A
+add A,B
+push A
+pop L
+push H
+pop A
+adc A,0
+push A
+pop H
+dec D
+jp nz,nvm_wr_loop
+
+pop D
+pop C
+pop B
+pop A
+pop F
+ret
 
 ; ------------------------------------------------------------
 ; Calibrate the transmit clock frequency. We take the CPU out
 ; of boost, turn off the transmit clock, and repeat a cycle of
 ; setting the transmit clock divisor and running the transmit
-; clock to measure its frequency. Eventually we get a diviso
+; clock to measure its frequency. Eventually we get a divisor
 ; that provides a transmit period in the range 195-215 ns. We
 ; leave the transmit clock off at the end.
+;
+; MODE: Slow mode only.
+;
 
 calibrate_tck:
 
@@ -260,7 +360,6 @@ calibrate_tck:
 push F
 push A           
 push B           
-
 
 ; Pop registers and return.
 
@@ -275,6 +374,9 @@ ret
 ; about 250 nA after the single measurement. Prior to initiating
 ; the conversion, the routine reads out the temperature and stores 
 ; in two memory locations.
+;
+; MODE: Slow or boost mode.
+;
 
 tmp_single:
 
@@ -348,6 +450,9 @@ ret
 ; Beware changing the order of the first two writes and the delay. The 
 ; accelerometer will deliver zeros if we deviate from the correct 
 ; sequence.
+;
+; MODE: Slow mode only.
+;
 
 bma_config:
 
@@ -364,8 +469,7 @@ ld A,bma_addr
 push A
 pop H
 
-; Specify the PWR_CONF register with its sub-address in L and 
-; a value in C. We are configuring for power-save mode.
+; Specify the PWR_CONF register with its sub-address in L.
 
 ld A,bma_pconf
 push A
@@ -384,7 +488,7 @@ call i2c_wr
 ld A,bma_pctrl
 push A
 pop L
-ld A,bma_disable
+ld A,bma_enable
 ld (IX),A
 ld A,1
 push A
@@ -401,7 +505,7 @@ dly A
 ld A,bma_aconf 
 push A
 pop L
-ld A,bma_25hz
+ld A,bma_1hz
 ld (IX),A
 ld A,1
 push A
@@ -436,6 +540,9 @@ ret
 ; bit readout, which is effective before any sample is taken, but
 ; not effective after the first sample is taken. The ADC Controller
 ; runs of FCK, so we must have TCK running when we call this routine.
+;
+; MODE: Boost mode only.
+;
 
 adc_calib:
 
@@ -481,7 +588,6 @@ jp nz,adc_calib_4
 pop A
 pop F
 ret
-
 
 ; ------------------------------------------------------------
 ; The interrupt handler. Assumes that it interrupts a program
@@ -555,12 +661,12 @@ ld A,(xmit_ch)      ; Load A with telemetry channel number
 ld (mmu_xch),A      ; and write the transmit channel register.
 
 ; We are assigning transmit channel numbers to ADC inputs,
-; temperature sensor, EEPROM, and accelerometer in this
+; temperature sensor, NVM, and accelerometer in this
 ; prototype code, so we can read any of them one at a time.
 ; The selection will be based upon the lower nibble of the
 ; channel number, which has range 1-14. Channels 1-8 are for
 ; the inputs AC/DC. Channel 9 for temperature. Channel 10 for
-; EEPROM, 11 for accelerometer, 12 for the state of the LED,
+; NVM, 11 for accelerometer, 12 for the state of the LED,
 ; 13-14 are for the device identifier.
 
 and A,0x0F
@@ -710,9 +816,12 @@ int_xmit_nvm:
 ld A,nvm_addr
 push A
 pop H
-ld A,0x00
+ld A,(nvm_cntr)
+add A,2
+and A,0x7E
 push A
 pop L
+ld (nvm_cntr),A
 ld IX,scratch
 ld A,2
 push A
@@ -726,7 +835,8 @@ ld A,(IX)
 ld (mmu_xhb),A
 jp int_xmit_rdy
 
-; Transmit an accelerometer register.
+; Transmit an accelerometer measurement. The byte
+; ordering on the accelerometer is little-endian.
 
 int_xmit_acc:
 ld A,bma_addr
@@ -735,16 +845,18 @@ pop H
 ld A,bma_x
 push A
 pop L
-ld IX,mmu_xhb
+ld IX,scratch
 ld A,2
 push A
 pop C
 call i2c_rd
 dec IX
-dec IX
 ld A,(IX)
 add A,off_16bs   
-ld (IX),A
+ld (mmu_xhb),A
+dec IX
+ld A,(IX)
+ld (mmu_xlb),A
 jp int_xmit_rdy
 
 ; Transmit the state of the LED, and also, hidden
@@ -874,10 +986,10 @@ dly A               ; the transmit completes.
 
 ld A,id_hi          ; Load HI byte id identifier into A and
 ld (mmu_xlb),A      ; write to transmit LO register.
-ld A,id_lo  ; Load LO byte of identifier into A,
+ld A,id_lo          ; Load LO byte of identifier into A,
 or A,0x0F           ; set lower four bits to one and
 ld (mmu_xch),A      ; write to the transmit channel register.
-ld A,id_lo  ; Load LO byte into A again,
+ld A,id_lo          ; Load LO byte into A again,
 sla A               ; shift A 
 sla A               ; left
 sla A               ; four
@@ -1502,29 +1614,6 @@ ld (mmu_ccr),A      ; Disable TCK and move out of boost.
 
 pop A               
 pop F               
-ret                 
-
-; -----------------------------------------------------------------
-; A visible delay for use when flashing the lamp as an indicator.
-
-flash_delay:
-
-push F
-push A
-push B
-
-ld A,flash_len
-push A
-pop B
-flash_delay_loop:
-ld A,0xFF
-dly A
-dec B
-jp nz,flash_delay_loop
-
-pop B
-pop A
-pop F
 ret
 
 ; -----------------------------------------------------------------
@@ -1545,7 +1634,8 @@ ld SP,HL
 
 ld A,0x01
 ld (mmu_led),A
-call flash_delay
+ld A,lon_ms
+call delay_ms
 
 ; Initialize variable locations to zero.
 
@@ -1560,16 +1650,6 @@ inc IX
 dec B
 jp nz,main_var_init_loop
 
-; Write numbers 0-15 to the first sixteen  scratch locations.
-
-ld IX,scratch
-ld A,0
-nvm_loop:
-ld (IX),A
-inc IX
-add A,16
-jp nz,nvm_loop
-
 ; Initialize certain variables to values other than zero.
 
 ld A,id_lo         ; Set the primary channel number to the
@@ -1580,7 +1660,8 @@ ld (xmit_ch),A     ; low byte of the device identifier.
 
 ld A,0x00
 ld (mmu_led),A
-call flash_delay
+ld A,loff_ms
+call delay_ms
 
 ; Configure control space registers.
 
@@ -1619,22 +1700,17 @@ ld (IY),A          ; in user program, in case of enable.
 
 ld A,0x01
 ld (mmu_led),A
-call flash_delay
+ld A,lon_ms
+call delay_ms
 
 ; Calibrate the transmit clock.
 
 call calibrate_tck
 
 ; Configure the accelerometer (BMA423) and thermometer (TMP117). 
-; We put the CPU into boost mode for the configuration, which
-; uses the I2C bus.
 
-ld A,0x03
-ld (mmu_ccr),A 
 call bma_config
 call tmp_single
-ld A,0x00
-ld (mmu_ccr),A 
 
 ; Set the period with which we will read out the thermometer, in
 ; units of interrupt periods.
@@ -1649,10 +1725,12 @@ ld (tmp_clb),A
 
 ld A,0x00
 ld (mmu_led),A
-call flash_delay
+ld A,loff_ms
+call delay_ms
 
 ; Put the CPU into boost mode and call the ADC calibration routine.
-; Afterwards, move out of boost.
+; Afterwards, move out of boost. We have to perform this calibration
+; in boost mode because the SPI interface works only with TCK.
 
 ld A,0x03 
 ld (mmu_ccr),A 
@@ -1664,26 +1742,35 @@ ld (mmu_ccr),A
 
 ld A,0x01
 ld (mmu_led),A
-call flash_delay
+ld A,lon_ms
+call delay_ms
 
-; Put the CPU into boost mode and write first sixteen locations in 
-; the NVM. When done, move out of boost.
+; Write a pattern to the scratch area.
 
-ld A,0x03 
-ld (mmu_ccr),A 
-ld A,nvm_addr
-push A
-pop H
-ld A,0x00
-push A
-pop L
 ld IX,scratch
-ld A,16
+ld A,64
 push A
 pop C
-call i2c_wr
-ld A,0x00
-ld (mmu_ccr),A 
+ld A,0
+nvm_scratch_init:
+ld (IX),A
+inc IX
+ld (IX),A
+inc IX
+add A,4
+dec C
+jp nz,nvm_scratch_init
+
+; Write the scratch area to the NVM.
+
+ld IX,scratch
+ld A,0
+push A
+pop L
+push A
+pop H
+ld A,128
+call nvm_wr
 
 ; Turn off the lamp. This is the end of the third start-up flash.
 

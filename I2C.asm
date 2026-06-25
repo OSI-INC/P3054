@@ -1,20 +1,23 @@
 ; ------------------------------------------------------------
-; I2C Write. Write one or more bytes to an I2C device. The routine
-; assumes the device auto-increments its sub-address after each
-; read, so that we will be writing to consecutive bytes from its
-; internal address space. We pass the device selection address 
-; in H, the internal sub-address in L, the number of bytes to be
-; written in C, and a pointer to the data bytes in IX. Registers H and 
-; L are unchanged, but IX will be incremented and C should be zero.
-; The routine leaves all other registers intact.
+; I2C Write. Write N bytes to an I2C device. The routine assumes 
+; the device auto-increments its sub-address after each read. We
+; will be writing to consecutive bytes in its internal address 
+; space. We pass the device selection address in H, the internal 
+; sub-address in L, the number of bytes to be written in C, and 
+; a pointer to the data bytes in IX. Register IX will be returned
+; pointing to the location after the final byte written. All other
+; registers will be returned unchanged.
+;
+; MODE: Slow or boost mode.
+;
 
 i2c_wr:
 
-; Push A and F so we don't trash them. They are not used to pass
-; arguments into the routine.
+; Push F, A, and C so we don't trash them.
 
 push F
 push A
+push C
 
 ; Start code (ST)
 
@@ -193,8 +196,9 @@ ld (mmu_i2c00),A  ; 3
 ld (mmu_i2c01),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
      
-; Restore A and F.
+; Restore A, C, and F.
 
+pop C
 pop A
 pop F
 
@@ -207,16 +211,21 @@ ret
 ; internal address space. We pass the device selection address 
 ; in H, the internal sub-address in L, the number of bytes to be
 ; read in C, and a pointer to the destination of the bytes in IX. 
-; Registers H and L are unchanged, but IX will be incremented and 
-; C should be zero. The routine leaves all other registers intact.
+; Registers C, H and L are unchanged, but IX will be incremented to
+; the location just after the last written byte. All other registers
+; remain intact.
+;
+; MODE: Slow or boost mode.
+;
 
 i2c_rd:
 
-; Push A and F so we don't trash them. They are not used to pass
+; Push F, A, and C so we don't trash them. They are not used to pass
 ; arguments into the routine.
 
 push F
 push A
+push C
 
 ; Start code (ST)
 
@@ -465,8 +474,9 @@ ld (mmu_i2c00),A  ; 3
 ld (mmu_i2c01),A  ; 3
 ld (mmu_i2cZ1),A  ; 3
   
-; Pop A and F.
+; Pop A, C and F.
 
+pop C
 pop A
 pop F
  
