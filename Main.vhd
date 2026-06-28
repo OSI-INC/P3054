@@ -56,8 +56,12 @@
 
 -- V1.10 [11-JUN-26] Instead of four accumulators, use a sample memory made out
 -- of our last EBR block, and share a single accumulator to calculate the transmit
--- sample value at transmit time. Logic size drops from 1250 to 1125 LUTs.
+-- sample value at transmit time. Size drops from 1250 to 1150 LUTs.
 
+-- [27-JUN-26] Replace TXA, which we never use, with MCK in the status register.
+-- Now we can use MCK as a millisecond timer that works in both boost and slow
+-- modes. Expand MMU comments. In software, insist that NVM writes be on page
+-- boundaries.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -432,38 +436,83 @@ begin
 			when ctrl_bot to ctrl_top =>
 				if not CPUWR then 
 					case bottom_bits is
+					
+						-- The interrupt request bits, used by the CPU interrupt
+						-- routine, of which there can by only one, to determine
+						-- which of the interrupt sources requires servicing.						
 						when mmu_irqb => cpu_data_in <= int_bits;
+						
+						-- The status register, which gives access to an array of
+						-- flags that signal the state of the peripheral logic.
+						-- and clocks, including the 32.768 kHz and 1.024 kHz 
+						-- clocks, which the CPU can use for timing.
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready
 							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Fast Clock Enabled
-							cpu_data_in(2) <= LED;                  -- Lamp On
+							cpu_data_in(2) <= MCK;                  -- Millisecond Clock
 							cpu_data_in(3) <= to_std_logic(TXA);    -- Transmit Active
 							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active 
 							cpu_data_in(5) <= to_std_logic(ADCBSY); -- ADC Controller Busy
 							cpu_data_in(6) <= CME;                  -- Command Memory Empty
 							cpu_data_in(7) <= RCK;                  -- Reference Clock
+							
+						-- The location from which the CPU reads command bytes out
+						-- of the command FIFO. Includes a strobe that increments the
+						-- FIFO after the read.
 						when mmu_cmp =>
 							cpu_data_in <= cmd_out;
 							CMRD <= to_std_logic(CPUDS);
+							
+						-- The location from which the CPU reads the byte most 
+						-- recently received from the I2C interface.
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
+						
+						-- The two locations from which the CPU can read the most 
+						-- recently obtained ADC sample prior to the sample being
+						-- stored in the sample accumulator. We do not use this
+						-- portal in normal operation, but it is useful for debugging
+						-- and increases our code size only by 8 LUTs. The ADCs
+						-- produce fourteen-bit samples. We shift them left two 
+						-- places and fill the bottom two bits with zeros.
 						when mmu_adcdh => cpu_data_in <= adc_data(13 downto 6);
 						when mmu_adcdl => 
 							cpu_data_in(7 downto 2) <= adc_data(5 downto 0);
 							cpu_data_in(1 downto 0) <= (others => '0');
+						
+						-- The two locations that provide the output of the ADC 
+						-- sample accumulator. We shift the eighteen-bit accumulator
+						-- output two places to the right to make our sixteen-bit
+						-- sample, discarding the two least significant bits.
 						when mmu_accdh  => cpu_data_in <= acc_data(17 downto 10);
 						when mmu_accdl =>  cpu_data_in <= acc_data(9 downto 2);
+						
+						-- Whenever we read any other location, we get the value 
+						-- previously written to the shadow RAM.
 						when others => cpu_data_in <= ram_out;
 					end case;
 				else 
+					-- When we write to any control space register, record the 
+					-- written value in the shadow RAM.
 					RAMWR <= to_std_logic(CPUDS);
 				end if;
 			when ram_bot to ram_top => 
+				-- The variable and stack RAM space, writing and reading.
 				if not CPUWR then
 					cpu_data_in <= ram_out;
 				else
 					RAMWR <= to_std_logic(CPUDS);
 				end if;
 			when prog_bot to prog_top =>
+				-- These writes go directly to the user program area of the 
+				-- CPU's program memory. The user program memory appears 
+				-- in address range prog_bot to prog_top in the CPU's 
+				-- process memory, addressed by cpu_address, and in the
+				-- uppermost region of the same size in the CPU's program, 
+				-- memory. The program memory has one port for writing and
+				-- another for reading. The CPU fetches instructions using 
+				-- the read portal with prog_cntr. The OSR writes to the
+				-- upper section of the program memory using the write portal
+				-- with prog_in_addr.
 				if CPUWR then
 					PROGWR <= to_std_logic(CPUDS);
 				end if;
@@ -517,25 +566,79 @@ begin
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
 					case bottom_bits is
+						-- Select between AC and DC coupling for the unipolar inputs.
 						when mmu_acfg => DC <= cpu_data_out(0);
+						
+						-- The two locations in which the CPU places the sixteen
+						-- telemetry sample bits that will be transmitted after the
+						-- next write to the transmission control register.
 						when mmu_xlb  => xmit_bits(7 downto 0) <= cpu_data_out;
 						when mmu_xhb  => xmit_bits(15 downto 8) <= cpu_data_out;
+						
+						-- The telemetry channel number for the next transmission.
 						when mmu_xch  => tx_channel <= to_integer(unsigned(cpu_data_out));
+						
+						-- The telemetry control register. The TXI initiates a transmission,
+						-- while TXWP turns on the VCO to warm it up before it transmits, 
+						-- which is necessary if the VCO has been dormant for more than 
+						-- 20 ms. We must turn off the warm-up by writing a zero to TXWP
+						-- after a warm-up of no more than 20 ms so we do not collide with
+						-- other transmitters.
 						when mmu_xcr  => 
 							TXI <= (cpu_data_out(0) = '1');
 							TXWP <= (cpu_data_out(1) = '1');
+							
+						-- The frequency calibration of the VCO. We write the VCO control
+						-- five-bit DAC value that sets the frequency of a transmit zero.
 						when mmu_rfc  => frequency_low <= to_integer(unsigned(cpu_data_out));
+						
+						-- The interrupt mask. Bits set to one enable their corresponding
+						-- interrupt request bits.
 						when mmu_imsk => int_mask <= cpu_data_out;
+						
+						-- The interrupt reset register. Bits set to one reset their
+						-- corresponding interrupt request bits, signalling that the
+						-- interrupt has been serviced.
 						when mmu_irst => int_rst <= cpu_data_out;
+						
+						-- Turn on the indicator lamp.
 						when mmu_led  => LED <= cpu_data_out(0);
+						
+						-- A strobe that reboots the firmware and CPU.
 						when mmu_rst  => SWRST <= (cpu_data_out(0) = '1');
+						
+						-- Control bits to turn on the fast clock, which in turn
+						-- produces the transmit clock, and to move the CPU into
+						-- boost mode. These bits are in addition to the automatic
+						-- enable of the fast clock and move into boost that is 
+						-- performed by the Boost Controller when it sees the
+						-- CPU's interrupt service flag has been set by the CPU
+						-- to indicate that it is servicing an interrupt.
 						when mmu_ccr  => 
 							ENFCK <= (cpu_data_out(0) = '1');
 							BOOST <= (cpu_data_out(1) = '1');
+							
+						-- The diagnostic flag register. These bits can be routed
+						-- to test points for diagnostics with an oscilloscope.
 						when mmu_dfr  => df_reg <= cpu_data_out(3 downto 0);
+						
+						-- The command processor reset bit: clears the command
+						-- FIFO and returns the command processor to its rest state.
 						when mmu_cpr  => CPRST <= true;
+						
+						-- The periods used by the interrupt timers.
 						when mmu_i3p  => int_period_3(7 downto 0) <= cpu_data_out;
 						when mmu_i4p  => int_period_4(7 downto 0) <= cpu_data_out;
+						
+						-- The I2C bit-banging interface. Each write to one of these
+						-- locations sets both SDA and SCL to one of zero, one, or
+						-- high-impedance. We operate the I2C by writing register A
+						-- to these locations. Some locations take the top bit of A
+						-- and, when this bit is zero, drive SDA low. Others cause
+						-- the value of SDA to be shifted into the i2C byte register,
+						-- from which it can later be read out. With the CPU in boost
+						-- mode, the interface runs at 500 kHz. See the I2C assembler
+						-- routine for more details.
 						when mmu_i2c00 => 
 							SDA <= '0';
 							SCL <= '0';
@@ -564,14 +667,46 @@ begin
 							SCL <= '1';
 							i2c_in(7 downto 1) <= i2c_in(6 downto 0);
 							i2c_in(0) <= SDA;
+							
+						-- Strobes and flags that control the ADCs and the
+						-- ADC sample accumulator. The ADCRD strobe initiates
+						-- an SDI serial interface read. The ADCCAL flag 
+						-- turns any serial read into a self-calibration of the
+						-- selected ADC, the ADC being selected by sm_addr. The
+						-- ACCADD strobe causes the output of the sample memory
+						-- to be added to the accumulator. The ACCRST flag clears
+						-- the accumulator to zero.
 						when mmu_smcr =>
 							ADCRD  <= (cpu_data_out(0) = '1');
 							ADCCAL <= (cpu_data_out(1) = '1');
 							ACCADD <= cpu_data_out(2);
 							ACCRST <= cpu_data_out(3);
+						
+						-- The sample memory address, which is applied to
+						-- the sample memory to determine where samples are
+						-- stored and from where they are retrieved. We also
+						-- use the top two bits of the sample memory address
+						-- to select which ADC will be read out by the SDI 
+						-- interface. When taking a sample, we store it in 
+						-- the sample memory. When composing a sample for 
+						-- transmission, we read one or more samples from the
+						-- sample memory and add them together in the sample
+						-- accumulator.
 						when mmu_saddr =>
 							sm_addr <= cpu_data_out;
+							
+						-- The measure impedance flag displaces the ground
+						-- potential of unipolar and bipolar inputs so as
+						-- to introduce a step downwards in the unipolar 
+						-- inputs, the size of which depends upon the ratio
+						-- of the electrode impedance to the amplifier input
+						-- impedance.
 						when mmu_msr => MSR <= cpu_data_out(0);
+						
+						-- For all other addresses, we have not bits to set.
+						-- Note that the shadow RAM is recording all writes
+						-- to these addresses, and will respond to reads for
+						-- which no readable register is implemented.
 						when others => null;
 					end case;
 				end if;
@@ -1375,6 +1510,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(2);
+	TP <= df_reg(0);
 
 end behavior;

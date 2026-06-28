@@ -104,7 +104,7 @@ const scratch    0x0380 ; A 128-byte scratchpad.
 const sr_cmdrdy    0x01 ; Command Ready
 const sr_enfck     0x02 ; Enable Fast Clock
 const sr_ledon     0x04 ; Lamp On
-const sr_txa       0x08 ; Transmitter Active
+const sr_mck       0x08 ; Millisecond Clock
 const sr_cpa       0x10 ; Command Processor Active
 const sr_adcbsy    0x20 ; ADC Controller Busy
 const sr_cme       0x40 ; Command Memory Empty
@@ -252,10 +252,13 @@ jp interrupt
 
 ; ------------------------------------------------------------
 ; A multi-millisecond delay. Pass the number of milliseconds
-; in A. If A=0, the delay will be 256 ms.
-;
-; MODE: Slow mode only.
-;
+; in A. The delay will be between A-1 and A milliseconds. If
+; A=0, the delay will be 255-256 ms.
+
+; This routine will run in fast or slow modes. If interrupted, the
+; delay may be extended, depending upon how quickly the interrupt
+; service completes.
+
 delay_ms:
 push F
 push A
@@ -268,12 +271,20 @@ ld A,(mmu_dfr)
 or A,bit2_mask
 ld (mmu_dfr),A
 
-delay_ms_n:
-ld A,ms_tick
-sub A,7
-dly A
+delay_ms_lo:
+
+ld A,(mmu_sr)
+and A,sr_mck
+jp z,delay_ms_lo
+
+delay_ms_hi:
+
+ld A,(mmu_sr)
+and A,sr_mck
+jp nz,delay_ms_hi
+
 dec B
-jp nz,delay_ms_n
+jp nz,delay_ms_lo
 
 ld A,(mmu_dfr)
 and A,bit2_clr
@@ -285,15 +296,20 @@ pop F
 ret
 
 ; ------------------------------------------------------------
-; Write N bytes to the non-volatile memory, where N is 1-256.
-; To write N bytes, we pass 0 in A. To write 1-255 we pass N
-; in A. In IX we pass a pointer to the first byte to be written.
-; In HL we pass the sub-address to be written. Upon return, IX
-; points to the location after the last byte written and HL 
-; points to the sub-address after the last sub-address written.
+; Write 16N bytes to the non-volatile memory (NVM), where N is 
+; 1-128, making a total write size of 16 to 2048 bytes. In IX 
+; we pass a pointer to the first byte to be written. In HL we 
+; pass the eleven-bit sub-address at which the write should 
+; begin. The write must begin on a sixteen-byte boundary, for
+; that is the EEPROM page size. The routine clears the bottom
+; four bits of the sub-address to ensure writing to a page
+; boundary. Upon return, IX points to the location after the 
+; last byte written and the sub-address in HL points to the 
+; start of the next page in NVM.
 ;
-; MODE: Slow mode only.
-;
+; Can run in slow or boost mode. If interrupted, the interrupt
+; service routine must not call any I2C routine.
+
 nvm_wr:
 
 push F
@@ -308,6 +324,12 @@ and A,nvm_amask
 or A,nvm_addr
 push A
 pop H
+
+push L
+pop A
+and A,0xF0
+push A
+pop L
 
 ld A,16
 push A
@@ -350,8 +372,8 @@ ret
 ; that provides a transmit period in the range 195-215 ns. We
 ; leave the transmit clock off at the end.
 ;
-; MODE: Slow mode only.
-;
+; Assumes the calling program is running in slow mode with
+; interrupts disabled.
 
 calibrate_tck:
 
@@ -375,7 +397,7 @@ ret
 ; the conversion, the routine reads out the temperature and stores 
 ; in two memory locations.
 ;
-; MODE: Slow or boost mode.
+; Can run in slow or boost mode, but interrupts must be disabled.
 ;
 
 tmp_single:
@@ -451,7 +473,7 @@ ret
 ; accelerometer will deliver zeros if we deviate from the correct 
 ; sequence.
 ;
-; MODE: Slow mode only.
+; Can run in slow or boost mode, but interrupts must be disabled.
 ;
 
 bma_config:
@@ -541,7 +563,7 @@ ret
 ; not effective after the first sample is taken. The ADC Controller
 ; runs of FCK, so we must have TCK running when we call this routine.
 ;
-; MODE: Boost mode only.
+; Assumes boost mode and interrupts disabled.
 ;
 
 adc_calib:
@@ -922,8 +944,9 @@ rti                 ; Return from interrupt.
 ; following. The two messages allow us to receive the announcement
 ; and identify the device, as well as eliminate noise announcements.
 ; We pass the auxiliary type in register A and the auxiliary data 
-; in register B. The routine assumes we are running in boost with 
-; the interrupts disabled.
+; in register B. 
+;
+; Assumes boost mode with interrupts disabled.
 
 xmit_annc:
 
@@ -1013,6 +1036,11 @@ ret
 ; Transmit an acknowledgement. We put the auxiliary type in
 ; A and the acknowledgement key in B, then call our announcement
 ; routine.
+;
+; Assumes boost mode with interrupts disabled because it calls
+; the xmit_annc routine that requires boost mode and interrupts
+; disabled.
+
 
 annc_ack:
 
@@ -1034,6 +1062,10 @@ ret
 
 ; ------------------------------------------------------------
 ; Transmit a battery measurement. Routine mimics an A3041.
+;
+; Assumes boost mode with interrupts disabled because it calls
+; the xmit_annc routine that requires boost mode and interrupts
+; disabled.
 
 annc_batt:
 
@@ -1055,6 +1087,10 @@ ret
 ; ------------------------------------------------------------
 ; Announce the version number. We use A and B to pass the 
 ; version message identifier and the version number itself.
+;
+; Assumes boost mode with interrupts disabled because it calls
+; the xmit_annc routine that requires boost mode and interrupts
+; disabled.
 
 annc_ver:
 
@@ -1077,6 +1113,8 @@ ret
 ; Announce the device identifier. We wait for time and then
 ; transmit the identifier and confirmation messages that 
 ; make up the announcement.
+;
+; Assumes boost mode with interrupts disabled.
 
 annc_id:
 
@@ -1138,8 +1176,10 @@ ret
 ; Read a byte out of the command memory portal and store in a
 ; variable location, as well as returning it in A. With gcb_dsp
 ; set, we produce a serial display of the byte on diagnostic flag 
-; one. We assume interrupts are disabled and the CPU is running 
-; on the boost clock. 
+; one. 
+;
+; Assumes boost mode with interrupts disabled.
+
 
 get_cmd_byte:
 
@@ -1214,6 +1254,12 @@ ret
 ; and stops stimuli, transmission, battery measurement and
 ; acknowledgements. The routine assumes that the user program pointer
 ; is stored in IY upon entry, and will pass IY back after modification.
+; The user program needs to be stored from one command to the next
+; because we build the user program in stages, writing chunks of code
+; to the program memory that must be contiguous.
+;
+; Assumes the calling routine is running in slow mode with interrupts
+; enabled.
 
 cmd_execute:
 
@@ -1799,5 +1845,13 @@ jp main_loop
 ; ------------------------------------------------------------
 ; Include files. These must follow the main and interrupt jumps.
 
-include "../../OSR8/M8X8.asm"
+include "../../OSR8/Mult_8.asm"
+include "../../OSR8/Sub_8N.asm"
+include "../../OSR8/Add_8N.asm"
+include "../../OSR8/Copy_8N.asm"
+include "../../OSR8/Left_8N.asm"
+include "../../OSR8/Right_8N.asm"
+include "../../OSR8/Mult_16.asm"
+include "../../OSR8/Sqrt_32.asm"
 include "I2C.asm"
+

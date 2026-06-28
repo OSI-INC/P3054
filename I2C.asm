@@ -8,8 +8,9 @@
 ; pointing to the location after the final byte written. All other
 ; registers will be returned unchanged.
 ;
-; MODE: Slow or boost mode.
-;
+; This routine will run equally well in slow or boost mode. The
+; I2C interface is not re-entrant, so any interruption of this
+; routine must refrain from calling this or any other I2C routine.
 
 i2c_wr:
 
@@ -215,8 +216,9 @@ ret
 ; the location just after the last written byte. All other registers
 ; remain intact.
 ;
-; MODE: Slow or boost mode.
-;
+; This routine will run equally well in slow or boost mode. The
+; I2C interface is not re-entrant, so any interruption of this
+; routine must refrain from calling this or any other I2C routine.
 
 i2c_rd:
 
