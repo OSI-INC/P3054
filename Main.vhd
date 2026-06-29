@@ -99,7 +99,7 @@ entity main is
 		
 -- Configuration of OSR8 CPU.
 	constant prog_cntr_len : integer := 12;
-	constant cpu_addr_len : integer := 11;
+	constant cpu_addr_len : integer := 10;
 	constant start_pc : integer := 0;
 	constant interrupt_pc : integer := 3;
 	constant ram_addr_len : integer := 10;
@@ -109,8 +109,6 @@ entity main is
 	constant ctrl_top : integer := 16#00FF#;
 	constant ram_bot  : integer := 16#0100#;
 	constant ram_top  : integer := 16#03FF#;
-	constant prog_bot : integer := 16#0400#;
-	constant prog_top : integer := 16#07FF#;
 	
 -- Memory Map Constants, low nibble addresses in units of bytes. When a location is
 -- a control register shadowed in RAM, we say it is "Write/Readback". When writing to
@@ -213,9 +211,6 @@ architecture behavior of main is
 -- Program Memory Signals
 	signal prog_data : std_logic_vector(7 downto 0); -- ROM Data
 	signal prog_cntr : std_logic_vector(prog_cntr_len-1 downto 0); -- Prog Address
-	signal prog_in : std_logic_vector(7 downto 0); 
-	signal prog_in_addr : std_logic_vector(prog_cntr_len-1 downto 0); -- ROM Address
-	signal PROGWR : std_logic; -- ROM Write
 	
 -- Process Memory Signals
 	signal ram_addr : std_logic_vector(ram_addr_len-1 downto 0); -- RAM Address
@@ -359,16 +354,11 @@ begin
 -- accessible for writing during code execution. The top kilobyte appears for both
 -- read and write access in the top kilobyte of the CPU memory space. 
 	Program_Memory : entity ROM port map (
-		RdAddress => prog_cntr,
-        RdClock => not CK,
-        RdClockEn => '1',
+		Address => prog_cntr,
+        OutClock => not CK,
+        OutClockEn => '1',
         Reset => '0',	
-        Q => prog_data,
-		WrAddress => prog_in_addr,
-		WrClock => CK,
-		WrClockEn => PROGWR,
-		WE => '1',
-		Data => prog_in);
+        Q => prog_data);
 
 -- The OSR8 processor, configured for this application by its generic map.
 	CPU : entity OSR8_CPU 
@@ -403,22 +393,12 @@ begin
 		-- By default, don't write to RAM or PROG memories, nor do we read from
 		-- the command memory FIFO.
 		RAMWR <= '0';
-		PROGWR <= '0';
 		CMRD <= '0';
 		
 		-- The RAM address we take from the lower bits of the cpu
 		-- address. The RAM data in is always the cpu data out.
 		ram_in <= cpu_data_out;
 		ram_addr <= cpu_addr(ram_addr_len-1 downto 0);
-		
-		-- We can write to the user program memory with the CPU. We restrict 
-		-- the program memory write address to the portion of the ROM that
-		-- is reserved for user programs. On no account do we want the user 
-		-- program to be able to over-write the main program, which is loaded 
-		-- from the logic chip's conguration EEPROM on power-up.
-		prog_in <= cpu_data_out;
-		prog_in_addr(11 downto 10) <= "11";
-		prog_in_addr(9 downto 0) <= cpu_addr(9 downto 0);
 		
 		-- These signals develop after the CPU asserts a new address
 		-- along with CPU Write. They will be ready before the falling 
@@ -501,20 +481,6 @@ begin
 					cpu_data_in <= ram_out;
 				else
 					RAMWR <= to_std_logic(CPUDS);
-				end if;
-			when prog_bot to prog_top =>
-				-- These writes go directly to the user program area of the 
-				-- CPU's program memory. The user program memory appears 
-				-- in address range prog_bot to prog_top in the CPU's 
-				-- process memory, addressed by cpu_address, and in the
-				-- uppermost region of the same size in the CPU's program, 
-				-- memory. The program memory has one port for writing and
-				-- another for reading. The CPU fetches instructions using 
-				-- the read portal with prog_cntr. The OSR writes to the
-				-- upper section of the program memory using the write portal
-				-- with prog_in_addr.
-				if CPUWR then
-					PROGWR <= to_std_logic(CPUDS);
 				end if;
 			when others =>
 				null;
