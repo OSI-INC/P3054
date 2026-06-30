@@ -17,17 +17,17 @@ const id_hi        0xAA ; 0-255, no restrictions
 const id_lo        0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
 const f_low          14 ; Radio frequency calibration.
 
-; CPU Address Map Boundary Constants. The first kilobytes is
-; RAM. The RAM shadows the first 256 bytes, which serve for 
-; the control registers. Then we have 256 bytes for each of
-; the stack, user program variables, and main program 
-; variables. The top kilobyte is the user program itself. 
+; CPU Address Map Boundary Constants. The 256 bytes are the 
+; control registers, which are complimented by a RAM shadow
+; so that the most recent byte written can be read back.
+; The next 256 bytes are for the program stack. The scratch
+; area is 256 for memory transfers. The top 256 bytes are
+; for variables. 
 const ctrl_bot   0x0000 ; Control Registers
-const stack_bot  0x0100 ; Main Program Stack
-const uvar_bot   0x0200 ; User Program Variables
-const mvar_bot   0x0300 ; Main Program Variables
-const prog_bot   0x0400 ; User Program Instructions
-const prog_top   0x07FF ; Top of Address Range
+const stack_bot  0x0100 ; Program Stack
+const var_bot    0x0200 ; Program Variables
+const scratch    0x0300 ; Scratch Area
+const mem_top    0x03FF ; Top of Address Map
 
 ; Control Register Locations. These are shadowed in RAM.
 const mmu_irqb   0x0000 ; Interrupt Request Bits (Read)
@@ -91,20 +91,14 @@ const x3_mult    0x0312 ; X3 Repeat Count, applies during accumulation.
 const x4_mult    0x0313 ; X4 Repeat Count, applies during accumulation.
 
 ; Variables: Main Program, Non-Volatile Memory
-const nvm_cntr   0x0316 ; Counter for NVM transmission
-
-; Variables: Main Program, User Program Control
-const UPrun      0x0322 ; Running
-const UPinit     0x0323 ; Initialize
-
-; Scratch space for memory transfers.
-const scratch    0x0380 ; A 128-byte scratchpad.
+const nvm_cnth   0x0316 ; Counter for NVM transmission, HI
+const nvm_cntl   0x0317 ; Counter for NVM transmission, LO
 
 ; Constants: Status Register Bit Masks
 const sr_cmdrdy    0x01 ; Command Ready
 const sr_enfck     0x02 ; Enable Fast Clock
-const sr_ledon     0x04 ; Lamp On
-const sr_mck       0x08 ; Millisecond Clock
+const sr_mck       0x04 ; Millisecond Clock
+const sr_txa       0x08 ; Transmit Active
 const sr_cpa       0x10 ; Command Processor Active
 const sr_adcbsy    0x20 ; ADC Controller Busy
 const sr_cme       0x40 ; Command Memory Empty
@@ -165,7 +159,7 @@ const op_xon          2 ; 2 operand
 const op_xoff         3 ; 0 operands
 const op_batt         4 ; 0 operands
 const op_id           5 ; 0 operands
-const op_pgld         6 ; 1 operands
+const op_pgld         6 ; 2 operands
 const op_pgon         7 ; 0 operands
 const op_pgoff        8 ; 0 operands
 const op_pgrst        9 ; 0 operands
@@ -178,12 +172,17 @@ const op_zoff        15 ; 0 operands
 
 ; Constants: Non-Volatile Memory. The M24C16 EEPROM provides 
 ; 2K x 8 of NVM with an I2C interface. We can read 1-2048 
-; bytes in one read cycle. We can write 1-16 bytes in one write 
+; bytes in one read cycle. We can write 16 bytes in one write 
 ; cycle. The device address consists only of four bits, the lower 
 ; three bits of the seven-bit I2C address are used to select one 
-; of eight 256-byte blocks within the EEPROM.
+; of eight 256-byte blocks within the EEPROM. We dedicate these
+; blocks to various functions.
 const nvm_addr     0x50 ; Device address.
 const nvm_amask    0x07 ; Mask for bottom three bits.
+const nvm_calib    0x00 ; Calibration block, bytes 0x000-0x0FF.
+const nvm_config   0x01 ; Configuration block, bytes 0x100-0x1FF.
+const nvm_notes    0x02 ; User note blocks, bytes 0x200-0x3FF.
+const nvm_history  0x04 ; Usage history blocks, bytes 0x400-0x7FF.
 
 ; Constants: Temperature Sensor. The TMP117 provides sixteen-bit 
 ; read and write registers to the I2C bus.
@@ -298,14 +297,14 @@ ret
 ; ------------------------------------------------------------
 ; Write 16N bytes to the non-volatile memory (NVM), where N is 
 ; 1-128, making a total write size of 16 to 2048 bytes. In IX 
-; we pass a pointer to the first byte to be written. In HL we 
-; pass the eleven-bit sub-address at which the write should 
-; begin. The write must begin on a sixteen-byte boundary, for
-; that is the EEPROM page size. The routine clears the bottom
-; four bits of the sub-address to ensure writing to a page
-; boundary. Upon return, IX points to the location after the 
-; last byte written and the sub-address in HL points to the 
-; start of the next page in NVM.
+; we pass a pointer to the first byte to be written. In A we
+; pass N. In HL we pass the eleven-bit sub-address at which the 
+; write should begin. The write must begin on a sixteen-byte 
+; boundary, for that is the EEPROM page size. The routine clears 
+; the bottom four bits of the sub-address to ensure writing to a 
+; page boundary. Upon return, IX points to the location after the 
+; last byte written and the sub-address in HL points to the start 
+; of the next page in NVM.
 ;
 ; Can run in slow or boost mode. If interrupted, the interrupt
 ; service routine must not call any I2C routine.
@@ -317,6 +316,13 @@ push A
 push B
 push C
 push D
+
+push A
+pop D
+
+ld A,16
+push A
+pop C
 
 push H
 pop A
@@ -330,13 +336,6 @@ pop A
 and A,0xF0
 push A
 pop L
-
-ld A,16
-push A
-pop C
-
-push A
-pop D
 
 nvm_wr_loop:
 call i2c_wr
@@ -647,25 +646,6 @@ push L
 push IX
 push IY
 
-; Handle the user program interrupt, in which we call the user program
-; and allow it to execute and return. Because we just pushed all the
-; registers, the user program can do what it likes with all the registers
-; and flags, with the exception of the interrupt flag, which it must
-; handle with care. Right now, the interrupt flag is set, and interrupts
-; are disabled. Clearing the interrupt flag could cause the user program
-; to be interrupted to execute itself in a recursion that overflows the
-; stack.
-
-int_uprog:
-
-ld A,(mmu_irqb)     ; Read the interrupt request bits
-and A,bit2_mask     ; and test bit two,
-jp z,int_uprog_done ; skip if not uprog interrupt.
-ld A,bit2_mask      ; Reset this interrupt
-ld (mmu_irst),A     ; with the bit two mask.
-call prog_bot       ; Call the user program.
-int_uprog_done:
-
 ; Handle the transmit interrupt, if it exists. We transmit a synchronizing signal.
 ; We won't wait for the transmission to complete because we are certain to follow 
 ; our transmission with at least one RCK period when we move out of boost. 
@@ -748,6 +728,7 @@ int_xmit_adc:
 ; Compose the sample address out of the channel number and the
 ; index. Leaving the address of the first sample (index zero) in
 ; register B.
+
 ld A,(xmit_ch)
 dec A
 and A,0x03
@@ -762,44 +743,45 @@ or A,B
 ; need to wait for completion because we have enough stuff to do 
 ; before we change the sample address again. The readout continues 
 ; in the background.
+
 ld (mmu_saddr),A
 ld A,sm_read
 ld (mmu_smcr),A
 
-; Decrement the sample index.
+; Decrement the sample index. If zero or greater, we are not ready 
+; to transmit.
+
 ld A,(x1_idx)
 dec A
 ld (x1_idx),A
-
-; If the sample index is zero or greater, we are not ready to transmit, 
-; so we are done.
 jp p,int_xmit_done
 
 ; We have finished storing samples. Reset the sample index
 ; to the transmit period minus one. Save the transmit period
 ; in C for later.
+
 ld A,(x1_txp)
 push A
 pop C
 dec A
 ld (x1_idx),A
 
-; Point to the accumulator control register with
-; IX and the sample address with IY.
+; Point to the accumulator control register with IX and the 
+; sample address with IY.
+
 ld IX,mmu_smcr
 ld IY,mmu_saddr
 
-; Reset the accumulator. 
-ld A,sm_rst
-ld (IX),A
-
-; We are going to add sixteen samples to the accumulator
-; so as to produce a sum of the correct magnitude. These 
-; could be sixteen different samples, sixteen copies of
-; a single sample, or some other such combination. The 
-; sample multiplier tells us how many times to add each 
+; Reset the accumulator. We are going to add txp samples to 
+; the accumulator so as to produce a sum of the correct 
+; magnitude. These could be sixteen different samples, sixteen 
+; copies of a single sample, or some other such combination. 
+; The sample multiplier tells us how many times to add each 
 ; sample to the accumulator. We store the sample multiplier
 ; in register E.
+
+ld A,sm_rst
+ld (IX),A
 ld A,(x1_mult)
 push A
 pop E
@@ -809,6 +791,7 @@ pop E
 ; We begin by moving the first sample address from B, where we
 ; stored it earlier, into A, and loading it into the sample 
 ; address register.
+
 int_xmit_acc_loop:
   push B
   pop A
@@ -826,6 +809,7 @@ jp nz,int_xmit_acc_loop
 
 ; The accumulator now contains our transmit sample, so
 ; load it into the transmitter.
+
 ld A,(mmu_accdh)
 ld (mmu_xhb),A
 ld A,(mmu_accdl)
@@ -835,20 +819,29 @@ jp int_xmit_rdy
 ; Read two bytes from the non-volatile memory.
 
 int_xmit_nvm:
-ld A,nvm_addr
-push A
-pop H
-ld A,(nvm_cntr)
+ld A,(nvm_cntl)
+and A,0xFE
 add A,2
-and A,0x7E
+ld (nvm_cntl),A
 push A
 pop L
-ld (nvm_cntr),A
+
+ld A,(nvm_cnth)
+adc A,0
+and A,0x07
+ld (nvm_cnth),A
+or A,nvm_addr
+push A
+pop H
+
 ld IX,scratch
+
 ld A,2
 push A
 pop C
+
 call i2c_rd
+
 dec IX
 ld A,(IX)
 ld (mmu_xlb),A
@@ -1252,11 +1245,7 @@ ret
 ; Read out, interpret, and execute comands. Uses the global command
 ; count variable, stimulus and configuration locations, and starts
 ; and stops stimuli, transmission, battery measurement and
-; acknowledgements. The routine assumes that the user program pointer
-; is stored in IY upon entry, and will pass IY back after modification.
-; The user program needs to be stored from one command to the next
-; because we build the user program in stages, writing chunks of code
-; to the program memory that must be contiguous.
+; acknowledgements.
 ;
 ; Assumes the calling routine is running in slow mode with interrupts
 ; enabled.
@@ -1525,16 +1514,8 @@ call annc_id
 jp cmd_loop
 check_identify_end:
 
-; Receive user code and load into user program memory. Instruction
-; takes one operand: the number of program bytes that follow the
-; operand. The bytes will be loaded into the location pointed to 
-; by index register IY. If one or more bytes are loaded by this
-; instruction into the user program memory, we set the user program
-; run flag so as to keep the device powered up to receive more
-; user program bytes in future commands. But we disable the user
-; program interrupt to make sure that we don't execute a partially-
-; loaded program. We do not acknowledge the upload because the
-; upload itself does not cause any action.
+; Receive configuration and write to configuration space in the
+; non-volatile memory.
   
 check_pgld:
 ld A,(ccmdb)
@@ -1544,81 +1525,33 @@ call get_cmd_byte  ; Get the number of program bytes.
 add A,0            ; If number of bytes is zero,
 jp z,cmd_loop      ; we are done with this instruction.
 push A             ; Otherwise, use B to count the
-pop B              ; program bytes.
+pop B              ; program bytes, and store also in E
+push A
+pop E
+ld IX,scratch      ; Point IX to the scratch area.
+call get_cmd_byte  ; Read the upper address byte.
+push A
+pop H
+call get_cmd_byte  ; Read the lower address byte.
+push A
+pop L
 load_prog:        
 call get_cmd_byte  ; Read instruction byte from command memory
-ld (IY),A          ; and write to program memory.
-inc IY             ; Increment memory pointer.
+ld (IX),A          ; and write to program memory.
+inc IX             ; Increment memory pointer.
 dec B              ; Decrement B, and if not zero, 
 jp nz,load_prog    ; read another byte.
-ld A,0x01          ; Otherwise, we set the
-ld (UPrun),A       ; user program flag to keep the device awake.
-ld (UPinit),A      ; Clear the user program initialization flag.
-ld A,0             ; Load interrupt three timer with zero
-ld (mmu_i3p),A     ; to disable the interrupt.
-ld A,(mmu_imsk)    ; Mask interrupt number
-and A,bit2_clr     ; three with bit two in the 
-ld (mmu_imsk),A    ; interrupt mask.
+ld IX,scratch
+push E
+pop A
+srl A
+srl A
+srl A
+srl A
+call nvm_wr
+call annc_ack
 jp cmd_loop        ; We are done with this instruction.
 check_pgld_end:
-
-; Turn on execution of user code by enabling the dedicated user program
-; interrupt.
-
-check_pgon:
-ld A,(ccmdb)
-sub A,op_pgon
-jp nz,check_pgon_end
-ld A,0x01               ; Set the the user program
-ld (UPrun),A            ; run and
-ld (UPinit),A           ; initialization flags.
-ld A,uprog_tick         ; Set interrupt timer three to 
-ld (mmu_i3p),A          ; the uprog_tick period
-ld A,(mmu_imsk)         ; and enable interrupt timer
-or A,bit2_mask          ; three with bit two of 
-ld (mmu_imsk),A         ; the interrupt mask.
-call annc_ack           ; Acknowledge enable program.
-jp cmd_loop
-check_pgon_end:
-
-; Turn off execution of user code, disable user code interrupt.
-
-check_pgoff:
-ld A,(ccmdb)
-sub A,op_pgoff
-jp nz,check_pgoff_end
-ld A,0x00               ; Clear the user program 
-ld (UPrun),A            ; run and
-ld (UPinit),A           ; initialization flags.
-ld A,0                  ; Load interrupt three timer with zero
-ld (mmu_i3p),A          ; to disable the interrupt.
-ld A,(mmu_imsk)         ; Mask interrupt timer three
-and A,bit2_clr          ; with bit
-ld (mmu_imsk),A         ; two of interrupt mask
-call annc_ack           ; Acknowledge disable program.
-jp cmd_loop
-check_pgoff_end:
-
-; Reset the user program pointer to point to the first byte in user
-; program memory. We don't acknowledge this instruction.
-
-check_pgrst:
-ld A,(ccmdb)
-sub A,op_pgrst
-jp nz,check_pgrst_end
-ld IY,prog_bot          ; Load IY with the base of
-jp cmd_loop             ; user program memory.
-check_pgrst_end:
-
-; Shut down the device. We acknowledge but otherwise do nothing.
-
-check_shdn:
-ld A,(ccmdb)
-sub A,op_shdn
-jp nz,check_shdn_end 
-call annc_ack        ; Acknowledge shutdown command.
-jp cmd_loop
-check_shdn_end:
 
 ; Version request instruction. This instruction takes no
 ; operands. We call the version transmit routine.
@@ -1642,7 +1575,7 @@ cmd_done:
 ld A,0x01
 ld (mmu_cpr),A
 
-; Restore most registers, but not IY, which contains the user program pointer.
+; Restore registers.
 
 pop IX
 pop L
@@ -1685,7 +1618,7 @@ call delay_ms
 
 ; Initialize variable locations to zero.
 
-ld IX,mvar_bot
+ld IX,var_bot
 ld A,num_vars
 push A
 pop B
@@ -1736,12 +1669,6 @@ ld (mmu_irst),A    ; Reset all interrupts.
 ld A,f_low         ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
 
-; Configure user programming. 
-
-ld IY,prog_bot     ; The main loop uses IY for the user program pointer.
-ld A,ret_code      ; Put a return opcode at first byte
-ld (IY),A          ; in user program, in case of enable.
-
 ; Turn on the lamp. This is the start of the second start-up flash.
 
 ld A,0x01
@@ -1776,7 +1703,8 @@ call delay_ms
 
 ; Put the CPU into boost mode and call the ADC calibration routine.
 ; Afterwards, move out of boost. We have to perform this calibration
-; in boost mode because the SPI interface works only with TCK.
+; with FCK running and we assume CK = TCK when waiting for the
+; conversion to complete.
 
 ld A,0x03 
 ld (mmu_ccr),A 
@@ -1790,33 +1718,6 @@ ld A,0x01
 ld (mmu_led),A
 ld A,lon_ms
 call delay_ms
-
-; Write a pattern to the scratch area.
-
-ld IX,scratch
-ld A,64
-push A
-pop C
-ld A,0
-nvm_scratch_init:
-ld (IX),A
-inc IX
-ld (IX),A
-inc IX
-add A,4
-dec C
-jp nz,nvm_scratch_init
-
-; Write the scratch area to the NVM.
-
-ld IX,scratch
-ld A,0
-push A
-pop L
-push A
-pop H
-ld A,128
-call nvm_wr
 
 ; Turn off the lamp. This is the end of the third start-up flash.
 

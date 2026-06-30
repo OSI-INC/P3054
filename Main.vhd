@@ -1476,6 +1476,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(0);
+	TP <= df_reg(2);
 
 end behavior;
