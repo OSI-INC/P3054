@@ -18,8 +18,8 @@
 -- V1.4 [09-APR-26] Sensor Controller becomes the ADC Controller. Rename sensor
 -- signals. Controller supports one and two left shifts of fourteen-bit data.
 -- The ADC control register sets shift and selects the ADC. Amplifier control
--- register turns on and off DC coupling and impedance measurement switch. The ADC
--- readout runs off FCK with SCK at 5 MHz.
+-- register turns on and off DC coupling and impedance measurement switch. The 
+-- ADC readout runs off FCK with SCK at 5 MHz.
 
 -- V1.5 [01-MAY-26] Add readback of amplifier configuration register. Eliminate 
 -- support for random stimuli in software. Remove multiplier from software. Now
@@ -263,10 +263,7 @@ architecture behavior of main is
 		CMDRDY, -- Command Ready
 		CPRST -- Command Processor Reset
 		: boolean := false;
-		
--- Stimulus Current Controller
-	signal stimulus_current : integer range 0 to 15;
-	
+			
 -- Functions and Procedures	
 	function to_std_logic (v: boolean) return std_ulogic is
 	begin if v then return('1'); else return('0'); end if; end function;
@@ -292,8 +289,8 @@ begin
 -- The Power-Up Process. We have CLRFLAG and USERSTDBY cleared LO on power-up,
 -- and RESET set HI. When RCK starts up, we us the falling edge to move the 
 -- chip into standby mode, then unassert RESET once we receive SFLAG from the
--- Power Control Unit (PCU). The process asserts OND to keep the power on.
-	PowerUp: process (RCK, CPA, DACTIVE) is
+-- Power Control Unit (PCU).
+	PowerUp: process (RCK) is
 		constant end_state : integer := 7;
 		constant clr_state : integer := 3;
 		constant stdby_state : integer := clr_state + 2;
@@ -501,7 +498,6 @@ begin
 			tx_channel <= 0;
 			int_period_3 <= (others => '0');
 			int_period_4 <= (others => '0');
-			stimulus_current <= 0;
 			df_reg <= (others => '0');
 			int_mask <= (others => '0');
 			int_rst <= (others => '1');
@@ -680,28 +676,28 @@ begin
 		end if;
 	end process;
 	
-	-- The Boost Controller switches the CPU between RCK and a 5-MHz it
-	-- generates using FCK. We call this 5-MHz clock the Transmit Clock 
-	-- (TCK). When the CPU's clock CK is set to TCK, we are in "boost" mode. 
-	-- When CK = RCK we are in "slow" mode. Switching to boost is easy
-	-- because we know the state of RCK when we want to switch into boost. 
-	-- Either the CPU just asserted BOOST with a regiseter write, or it 
-	-- just asserted Interrupt Service (ISRV). Both occur on the falling 
-	-- edge of CK, so RCK  will be LO for at least 15 us. We come out of 
-	-- boost when both BOOST and ISRV are un-asserted. We use signal 
-	-- RCKLO to coordinate the transition from TCK to RCK. We will perform
-	-- this transition only when both TCK and RCK are LO and guaranteed
-	-- to remain LO for at least two FCK cycles. We care about the value of 
-	-- RCKLO only when FCK is running and BOOST has been unasserted. We
-	-- assert RCKLO after each falling edge of RCK for a one hundred FCK
-	-- cycles, which will be 10 us if FCK is exactly 10 MHz, but longer
-	-- if FCK is running slower, as it will before calibration. We assume
-	-- that FCK will always be at least 7 MHz so that RCKLO will never
-	-- exceed 15 us and remain asserted during the next rising edge of RCK.
-	-- During transitions between boost and slow modes, TCK will skip some
-	-- cycles. We must refrain from moving in and out of boost while some
-	-- other process is relying on TCK to be sustained. For example, we must 
-	-- not boost or un-boost during a telemetry sample transmission.
+-- The Boost Controller switches the CPU between RCK and a 5-MHz it
+-- generates using FCK. We call this 5-MHz clock the Transmit Clock 
+-- (TCK). When the CPU's clock CK is set to TCK, we are in "boost" mode. 
+-- When CK = RCK we are in "slow" mode. Switching to boost is easy
+-- because we know the state of RCK when we want to switch into boost. 
+-- Either the CPU just asserted BOOST with a regiseter write, or it 
+-- just asserted Interrupt Service (ISRV). Both occur on the falling 
+-- edge of CK, so RCK  will be LO for at least 15 us. We come out of 
+-- boost when both BOOST and ISRV are un-asserted. We use signal 
+-- RCKLO to coordinate the transition from TCK to RCK. We will perform
+-- this transition only when both TCK and RCK are LO and guaranteed
+-- to remain LO for at least two FCK cycles. We care about the value of 
+-- RCKLO only when FCK is running and BOOST has been unasserted. We
+-- assert RCKLO after each falling edge of RCK for a one hundred FCK
+-- cycles, which will be 10 us if FCK is exactly 10 MHz, but longer
+-- if FCK is running slower, as it will before calibration. We assume
+-- that FCK will always be at least 7 MHz so that RCKLO will never
+-- exceed 15 us and remain asserted during the next rising edge of RCK.
+-- During transitions between boost and slow modes, TCK will skip some
+-- cycles. We must refrain from moving in and out of boost while some
+-- other process is relying on TCK to be sustained. For example, we must 
+-- not boost or un-boost during a telemetry sample transmission.
 	Boost_Controller : process (RESET, FCK) is
 	variable state, next_state : integer range 0 to 3;
 	constant end_count : integer := 100;
@@ -776,10 +772,10 @@ begin
 			((RCK = '1') and (state = 0)) 
 			or ((TCK = '1') and (state = 3)));
 	end process;
-	-- The Interrupt Controller provides the interrupt signal to the CPU in response to
-	-- timer events. By default, at power-up, all interrupts are masked. We can set the
-	-- period of each timer by writing to locations in the CPU control space. If we want
-	-- the counter to have period N ticks, we write value N-1 to the period registers.
+-- The Interrupt Controller provides the interrupt signal to the CPU in response to
+-- timer events. By default, at power-up, all interrupts are masked. We can set the
+-- period of each timer by writing to locations in the CPU control space. If we want
+-- the counter to have period N ticks, we write value N-1 to the period registers.
 	Interrupt_Controller : process (RCK, int_rst) is
 	variable counter_3, counter_4 : integer range 0 to 255;
 	begin
@@ -869,9 +865,9 @@ begin
 		-- We generate an interrupt if any one interrupt bit is 
 		-- set and unmasked.
 	end process;
-	-- The Interrupt Generator takes the interrupt bits and the interrupt mask
-	-- and combines them to create an interrupt reques for the CPU, which we 
-	-- synchronize with CK.
+-- The Interrupt Generator takes the interrupt bits and the interrupt mask
+-- and combines them to create an interrupt reques for the CPU, which we 
+-- synchronize with CK.
 	Interrupt_Generator : process (CK) is
 	begin
 		if RESET = '1' then
@@ -907,16 +903,16 @@ begin
 		ClockEn => ACCADD,
 		Result => acc_data);
 
-	-- The ADC Controller starts reading one of the fourteen-bit ADCs when 
-	-- it detects ADC Read (ADCRD). The CPU can either wait for sixteen TCK
-	-- periods (4.2 us) or poll the ADCBSY bit in the status register until
-	-- it clears. If ADCRD is accompanied by ADCCAL, the ADC Controller 
-	-- performs a calibration read of twenty-four bits, which causes a self-
-	-- calibration provided that the calibration access is the first one after
-	-- power-up. The controller shifts fourteen-bit samples into the adc_data
-	-- register and then stores them in the sample memory. The ADC it selects
-	-- for readout is the one specified by the top two bits of the sample 
-	-- address (sm_addr).
+-- The ADC Controller starts reading one of the fourteen-bit ADCs when 
+-- it detects ADC Read (ADCRD). The CPU can either wait for sixteen TCK
+-- periods (4.2 us) or poll the ADCBSY bit in the status register until
+-- it clears. If ADCRD is accompanied by ADCCAL, the ADC Controller 
+-- performs a calibration read of twenty-four bits, which causes a self-
+-- calibration provided that the calibration access is the first one after
+-- power-up. The controller shifts fourteen-bit samples into the adc_data
+-- register and then stores them in the sample memory. The ADC it selects
+-- for readout is the one specified by the top two bits of the sample 
+-- address (sm_addr).
 	ADC_Controller : process (RESET, FCK) is
 		variable state, next_state : integer range 0 to 63 := 0;
 		constant end_access : integer := 50;
@@ -1476,6 +1472,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(2);
+	TP <= df_reg(0);
 
 end behavior;

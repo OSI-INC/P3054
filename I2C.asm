@@ -11,6 +11,11 @@
 ; This routine will run equally well in slow or boost mode. The
 ; I2C interface is not re-entrant, so any interruption of this
 ; routine must refrain from calling this or any other I2C routine.
+; 
+; The SCL cycles take exactly 10 CK cycles. In boost mode, the 
+; SCL clock runs at 500 kHz, which is slightly faster than the
+; standard 400-kHz I2C protocol standard. In slow mode, SCL runs
+; at 3.3 kHz.
 
 i2c_wr:
 
@@ -219,6 +224,11 @@ ret
 ; This routine will run equally well in slow or boost mode. The
 ; I2C interface is not re-entrant, so any interruption of this
 ; routine must refrain from calling this or any other I2C routine.
+;
+; The SCL cycles take exactly 10 CK cycles. In boost mode, the 
+; SCL clock runs at 500 kHz, which is slightly faster than the
+; standard 400-kHz I2C protocol standard. In slow mode, SCL runs
+; at 3.3 kHz.
 
 i2c_rd:
 

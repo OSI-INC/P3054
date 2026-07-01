@@ -12,6 +12,7 @@
 ; routine and I2C write and read routines.
 
 ; Configuration Constants.
+
 const version         1 ; The firmwarwe version.
 const id_hi        0xAA ; 0-255, no restrictions
 const id_lo        0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
@@ -20,16 +21,18 @@ const f_low          14 ; Radio frequency calibration.
 ; CPU Address Map Boundary Constants. The 256 bytes are the 
 ; control registers, which are complimented by a RAM shadow
 ; so that the most recent byte written can be read back.
-; The next 256 bytes are for the program stack. The scratch
-; area is 256 for memory transfers. The top 256 bytes are
+; The next 256 bytes are for the program stack. The scratch-
+; pad is 256 for memory transfers. The top 256 bytes are
 ; for variables. 
+
 const ctrl_bot   0x0000 ; Control Registers
 const stack_bot  0x0100 ; Program Stack
-const var_bot    0x0200 ; Program Variables
-const scratch    0x0300 ; Scratch Area
+const scr_bot    0x0200 ; Scratch-Pad
+const var_bot    0x0300 ; Program Variables
 const mem_top    0x03FF ; Top of Address Map
 
 ; Control Register Locations. These are shadowed in RAM.
+
 const mmu_irqb   0x0000 ; Interrupt Request Bits (Read)
 const mmu_imsk   0x0001 ; Interrupt Mask Bits (Write/Readback)
 const mmu_irst   0x0002 ; Interrupt Reset Bits (Write)
@@ -64,19 +67,23 @@ const mmu_accdl  0x001E ; Accumulator LO Byte (Read)
 const mmu_msr    0x001F ; Impedance Measurement Control (Write/Readback)
 
 ; Variables: Main Program, Command Reception and Response
+
 const Sack_key   0x0300 ; Acknowledgement key
 const ccmdb      0x0301 ; Copy of Command Byte
 
 ; Variables: Main Program, Sample Transmission
+
 const xmit_ch    0x0303 ; Telemetry Channel Number
 
 ; Variables: Main Program, Temperature Measurement
+
 const tmp_chb    0x0304 ; Temperature counter, HI
 const tmp_clb    0x0305 ; Temperature counter, LO
 const temp_hi    0x0306 ; Saved temperature measurement, HI
 const temp_lo    0x0307 ; Saved temperature measurement, LO
 
 ; Variables: Main Program, Sample Controller Accumulator
+
 const x1_idx     0x0308 ; X1 Sample Counter
 const x2_idx     0x0309 ; X2 Sample Counter
 const x3_idx     0x030A ; X3 Sample Counter
@@ -85,16 +92,18 @@ const x1_txp     0x030C ; X1 Sample Period, multiples of 1/1024 s.
 const x2_txp     0x030D ; X1 Sample Period, multiples of 1/1024 s.
 const x3_txp     0x030E ; X1 Sample Period, multiples of 1/1024 s.
 const x4_txp     0x030F ; X1 Sample Period, multiples of 1/1024 s.
-const x1_mult    0x0310 ; X1 Repeat Count, applies during accumulation.
-const x2_mult    0x0311 ; X2 Repeat Count, applies during accumulation.
-const x3_mult    0x0312 ; X3 Repeat Count, applies during accumulation.
-const x4_mult    0x0313 ; X4 Repeat Count, applies during accumulation.
+const x1_mult    0x0310 ; X1 Repeat Count
+const x2_mult    0x0311 ; X2 Repeat Count
+const x3_mult    0x0312 ; X3 Repeat Count
+const x4_mult    0x0313 ; X4 Repeat Count
 
 ; Variables: Main Program, Non-Volatile Memory
+
 const nvm_cnth   0x0316 ; Counter for NVM transmission, HI
 const nvm_cntl   0x0317 ; Counter for NVM transmission, LO
 
 ; Constants: Status Register Bit Masks
+
 const sr_cmdrdy    0x01 ; Command Ready
 const sr_enfck     0x02 ; Enable Fast Clock
 const sr_mck       0x04 ; Millisecond Clock
@@ -105,10 +114,12 @@ const sr_cme       0x40 ; Command Memory Empty
 const sr_rck       0x80 ; Current Value of Reference Clock
 
 ; Constants: Transmit Control Masks
+
 const tx_txi       0x01 ; Assert transmit initiate
 const tx_txwp      0x02 ; Assert transmit warm-up
 
 ; Constants: Auxiliary message types.
+
 const at_id           1 ; Identification
 const at_ack          2 ; Acknowledgements
 const at_batt         3 ; Battery Measurement
@@ -116,6 +127,7 @@ const at_conf         4 ; Confirmation
 const at_ver          5 ; Version
 
 ; Constants: Generic Bit Masks
+
 const bit0_mask    0x01 ; Bit Zero Mask
 const bit1_mask    0x02 ; Bit One Mask
 const bit2_mask    0x04 ; Bit Two Mask
@@ -134,6 +146,7 @@ const bit6_clr     0xBF ; Bit Six Clear
 const bit7_clr     0x7F ; Bit Seven Clear
 
 ; Constants: Delays, Frequencies, and Periods
+
 const min_tcf        72 ; Minimum TCK periods per half RCK period
 const initial_tcd    15 ; Max possible value of TCK divisor
 const tx_delay       40 ; Wait time for sample transmission in TCK periods
@@ -149,10 +162,8 @@ const tmp_period      8 ; Temperature update period in 1/4 s
 const lon_ms         20 ; Lamp on time in milliseconds
 const loff_ms       200 ; Lamp off time in milliseconds
 
-; Constants: Instruction Codes
-const ret_code     0x0A ; Return from subroutine instruction
-
 ; Constants: Command Codes
+
 const op_stop         0 ; 0 operands
 const op_start        1 ; 8 operands
 const op_xon          2 ; 2 operand
@@ -177,6 +188,7 @@ const op_zoff        15 ; 0 operands
 ; three bits of the seven-bit I2C address are used to select one 
 ; of eight 256-byte blocks within the EEPROM. We dedicate these
 ; blocks to various functions.
+
 const nvm_addr     0x50 ; Device address.
 const nvm_amask    0x07 ; Mask for bottom three bits.
 const nvm_calib    0x00 ; Calibration block, bytes 0x000-0x0FF.
@@ -186,6 +198,7 @@ const nvm_history  0x04 ; Usage history blocks, bytes 0x400-0x7FF.
 
 ; Constants: Temperature Sensor. The TMP117 provides sixteen-bit 
 ; read and write registers to the I2C bus.
+
 const tmp_addr     0x49 ; I2C address
 const tmp_treg     0x00 ; Temperature register
 const tmp_creg     0x01 ; Configuration register
@@ -198,6 +211,7 @@ const tmp_fastl    0x00 ; Fast measurement, LSB
 ; its internal sample rate. We give the internal addresses of 
 ; registers. When the address is always for a two-byte read, we 
 ; say so.
+
 const bma_addr     0x18 ; I2C address
 const bma_id       0x00 ; Identifier register
 const bma_x        0x12 ; ACC_X register, two bytes, little-endian
@@ -225,6 +239,7 @@ const bma_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
 const bma_sdly       50 ; Startup delay in RCK periods.
 
 ; Constants: Sample Controller.
+
 const sm_read      0x01 ; Read an ADC and store
 const sm_calib     0x03 ; Read and calibrate an ADC
 const sm_add       0x04 ; Add sample to accumulator
@@ -236,6 +251,7 @@ const sm_x4        0xC0 ; Base of X4 sample memory
 const smca_mask    0xC0 ; Channel address mask
 
 ; Constants: Mathematical.
+
 const off_16bs     0x80 ; Convert sixteen bit signed to unsigned.
 
 
@@ -266,10 +282,6 @@ push B
 push A
 pop B
 
-ld A,(mmu_dfr)
-or A,bit2_mask
-ld (mmu_dfr),A
-
 delay_ms_lo:
 
 ld A,(mmu_sr)
@@ -284,10 +296,6 @@ jp nz,delay_ms_hi
 
 dec B
 jp nz,delay_ms_lo
-
-ld A,(mmu_dfr)
-and A,bit2_clr
-ld (mmu_dfr),A
 
 pop B
 pop A
@@ -364,32 +372,6 @@ pop F
 ret
 
 ; ------------------------------------------------------------
-; Calibrate the transmit clock frequency. We take the CPU out
-; of boost, turn off the transmit clock, and repeat a cycle of
-; setting the transmit clock divisor and running the transmit
-; clock to measure its frequency. Eventually we get a divisor
-; that provides a transmit period in the range 195-215 ns. We
-; leave the transmit clock off at the end.
-;
-; Assumes the calling program is running in slow mode with
-; interrupts disabled.
-
-calibrate_tck:
-
-; Push flags and registers.
-
-push F
-push A           
-push B           
-
-; Pop registers and return.
-
-pop B           
-pop A           
-pop F
-ret  
-
-; ------------------------------------------------------------
 ; Perform a one-shot measurement of temperature and shut down
 ; the sensor afterwards. Current consumption will drop to 
 ; about 250 nA after the single measurement. Prior to initiating
@@ -436,7 +418,7 @@ ld (IX),A
 
 ; Initiate a conversion, which we do by writing two bytes to
 ; the sensor's configuration register. We first put these 
-; two bytes in the scratchpad so that the i2c routine will 
+; two bytes in the scratch-pad so that the i2c routine will 
 ; read them from main program memory and write them to the
 ; sensor. We already have the sensor address in H. We load
 ; the configuration register address into L.
@@ -444,7 +426,7 @@ ld (IX),A
 ld A,tmp_creg
 push A
 pop L
-ld IX,scratch
+ld IX,scr_bot
 ld A,tmp_oneh
 ld (IX),A
 inc IX
@@ -495,7 +477,7 @@ pop H
 ld A,bma_pconf
 push A
 pop L
-ld IX,scratch
+ld IX,scr_bot
 ld A,bma_pwrsv
 ld (IX),A
 ld A,1
@@ -637,6 +619,7 @@ ld (mmu_dfr),A      ; write to diagnostic flag register.
 
 ; Push all the registers, even if we don't use them in the interrupt
 ; code. We want to protect the calling process from the user program.
+
 push B
 push C
 push D
@@ -834,7 +817,7 @@ or A,nvm_addr
 push A
 pop H
 
-ld IX,scratch
+ld IX,scr_bot
 
 ld A,2
 push A
@@ -860,7 +843,7 @@ pop H
 ld A,bma_x
 push A
 pop L
-ld IX,scratch
+ld IX,scr_bot
 ld A,2
 push A
 pop C
@@ -1034,7 +1017,6 @@ ret
 ; the xmit_annc routine that requires boost mode and interrupts
 ; disabled.
 
-
 annc_ack:
 
 push F
@@ -1148,7 +1130,7 @@ jp nc,identify_delay
 
 ; Prepare A and B for call to xmit_annc.
 
-ld A,id_hi  ; Load HI byte id identifier 
+ld A,id_hi          ; Load HI byte id identifier 
 push A              ; into A and
 pop B               ; store in B.
 ld A,at_id          ; Load the identify type code into A.
@@ -1172,7 +1154,6 @@ ret
 ; one. 
 ;
 ; Assumes boost mode with interrupts disabled.
-
 
 get_cmd_byte:
 
@@ -1261,12 +1242,15 @@ cmd_execute:
 push F              ; Push flags.
 seti                ; Disable interrupts.
 
-; Now we push A, turn on the fast clock and go into boost, then push all 
-; the remaining registers we plan to use.
+; Now we push A, turn on the fast clock and go into boost.
 
 push A       
 ld A,0x03 
 ld (mmu_ccr),A 
+
+; Push all the other registers. We reserve the right to use any
+; and all of them in this routine.
+
 push B
 push C
 push D
@@ -1274,6 +1258,7 @@ push E
 push H
 push L
 push IX
+push IY
 
 ; Check the empty flag and abort if it is set. We don't want to try
 ; to process an empty command. If the empty flag is not set, we
@@ -1345,10 +1330,9 @@ ld A,(mmu_sr)
 and A,sr_cme 
 jp nz,cmd_done
 
-; The command memory is a first-in first-out buffer, so we read a 
-; byte and store it in memory and in A with get_cmd_byte. After that, 
-; we can get the byte by reading it from location ccmdb (copy of 
-; command byte).
+; The command memory is a first-in first-out buffer. We use our
+; get_cmd_byte routine to bring the next byte into A and also to
+; store that same byte in location ccmdb (copy of command byte).
 
 call get_cmd_byte
 
@@ -1357,7 +1341,7 @@ call get_cmd_byte
 
 ld (Sack_key),A
 
-; The lamp-off instruction. All we are going to do is turn off 
+; The lamp-off instruction. Turn off 
 ; the LED.
 
 check_loff:
@@ -1383,7 +1367,8 @@ jp cmd_loop
 check_lon_end:
 
 ; The impedance measurement off instruction. We open the impedance
-; measurement switch.
+; measurement switch so that the unipolar input ground is equal to
+; the amplifier zero-volt potential.
 
 check_zoff:
 ld A,(ccmdb)
@@ -1396,7 +1381,8 @@ jp cmd_loop
 check_zoff_end:
 
 ; The impedance measurement on instruction. We close the impedance
-; measurement switch.
+; measurement switch so that the unipolar input ground is shifted
+; downwards with respect to the amplifier zero-volt potential.
 
 check_zon:
 ld A,(ccmdb)
@@ -1514,42 +1500,43 @@ call annc_id
 jp cmd_loop
 check_identify_end:
 
-; Receive configuration and write to configuration space in the
-; non-volatile memory.
+; Write bytes to the non-volatile memory at a particular address.
   
 check_pgld:
 ld A,(ccmdb)
 sub A,op_pgld
 jp nz,check_pgld_end
 call get_cmd_byte  ; Get the number of program bytes.
-add A,0            ; If number of bytes is zero,
-jp z,cmd_loop      ; we are done with this instruction.
-push A             ; Otherwise, use B to count the
-pop B              ; program bytes, and store also in E
-push A
-pop E
-ld IX,scratch      ; Point IX to the scratch area.
+push A             ; and move
+pop B              ; to B.
 call get_cmd_byte  ; Read the upper address byte.
-push A
-pop H
+push A             ; and move
+pop H              ; to H.
 call get_cmd_byte  ; Read the lower address byte.
-push A
-pop L
+push A             ; and move
+pop L              ; to L.
+push B             ; Bring back 
+pop A              ; the number of bytes.
+add A,0            ; If this number is zero,
+jp z,cmd_loop      ; we are done with this instruction.
+push A             ; Make a copy of the number of
+pop E              ; bytes for later.
+ld IX,scr_bot      ; Point IX to the scratch-pad.
 load_prog:        
 call get_cmd_byte  ; Read instruction byte from command memory
-ld (IX),A          ; and write to program memory.
+ld (IX),A          ; and write to the scratch-pad.
 inc IX             ; Increment memory pointer.
 dec B              ; Decrement B, and if not zero, 
 jp nz,load_prog    ; read another byte.
-ld IX,scratch
-push E
-pop A
-srl A
-srl A
-srl A
-srl A
-call nvm_wr
-call annc_ack
+ld IX,scr_bot      ; Preapare to write the
+push E             ; values to the NVM.
+pop A              ; We divide the number of
+srl A              ; bytes by
+srl A              ; sixteen to get the
+srl A              ; number of sixteen-byte
+srl A              ; pages to be written.
+call nvm_wr        ; Call the write routine and
+call annc_ack      ; acknowledge.
 jp cmd_loop        ; We are done with this instruction.
 check_pgld_end:
 
@@ -1577,6 +1564,7 @@ ld (mmu_cpr),A
 
 ; Restore registers.
 
+pop IY
 pop IX
 pop L
 pop H
@@ -1585,12 +1573,14 @@ pop D
 pop C
 pop B
 
-; Turn of fast clock and move out of boost. Pop the flag register off
-; the stack, restores the previous value of the interrupt flag.
+; Turn of fast clock and move out of boost. 
 
 ld A,0x00           ; Clear bits zero and one,
 ld (mmu_ccr),A      ; Disable TCK and move out of boost.
 
+; Pop A and F off
+; the stack. When we restore F, we restore the previous value of the
+; interrupt flag.
 pop A               
 pop F               
 ret
@@ -1675,10 +1665,6 @@ ld A,0x01
 ld (mmu_led),A
 ld A,lon_ms
 call delay_ms
-
-; Calibrate the transmit clock.
-
-call calibrate_tck
 
 ; Configure the accelerometer (BMA423) and thermometer (TMP117). 
 
