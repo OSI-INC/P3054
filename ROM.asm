@@ -66,41 +66,75 @@ const mmu_accdh  0x001D ; Accumulator HI Byte (Read)
 const mmu_accdl  0x001E ; Accumulator LO Byte (Read)
 const mmu_msr    0x001F ; Impedance Measurement Control (Write/Readback)
 
-; Variables: Main Program, Command Reception and Response
+; The variable space will be entirely written on start-up by a
+; a block read from the NVM. Before copying, however, we check
+; to see if the first two bytes match our password.
 
-const Sack_key   0x0300 ; Acknowledgement key
-const ccmdb      0x0301 ; Copy of Command Byte
+const key_hb     0x0300 
+const key_lb     0x0301
 
-; Variables: Main Program, Sample Transmission
+; Configuration of the four biopotential inputs. For each we
+; have a telemetry channel, transmit sample period, sample
+; index, and sample multiplier. The transmit sample period
+; we specify as a multiple of the input sample period.
 
-const xmit_ch    0x0303 ; Telemetry Channel Number
+const x1_ch      0x0302 
+const x1_txp     0x0303 
+const x1_idx     0x0304 
+const x1_mult    0x0305 
 
-; Variables: Main Program, Temperature Measurement
+const x2_ch      0x0306 
+const x2_txp     0x0307 
+const x2_idx     0x0308 
+const x2_mult    0x0309 
 
-const tmp_chb    0x0304 ; Temperature counter, HI
-const tmp_clb    0x0305 ; Temperature counter, LO
-const temp_hi    0x0306 ; Saved temperature measurement, HI
-const temp_lo    0x0307 ; Saved temperature measurement, LO
+const x3_ch      0x030A 
+const x3_txp     0x030B 
+const x3_idx     0x030C 
+const x3_mult    0x030D 
 
-; Variables: Main Program, Sample Controller Accumulator
+const x4_ch      0x030E 
+const x4_txp     0x030F 
+const x4_idx     0x0310 
+const x4_mult    0x0311 
 
-const x1_idx     0x0308 ; X1 Sample Counter
-const x2_idx     0x0309 ; X2 Sample Counter
-const x3_idx     0x030A ; X3 Sample Counter
-const x4_idx     0x030B ; X4 Sample Counter
-const x1_txp     0x030C ; X1 Sample Period, multiples of 1/1024 s.
-const x2_txp     0x030D ; X1 Sample Period, multiples of 1/1024 s.
-const x3_txp     0x030E ; X1 Sample Period, multiples of 1/1024 s.
-const x4_txp     0x030F ; X1 Sample Period, multiples of 1/1024 s.
-const x1_mult    0x0310 ; X1 Repeat Count
-const x2_mult    0x0311 ; X2 Repeat Count
-const x3_mult    0x0312 ; X3 Repeat Count
-const x4_mult    0x0313 ; X4 Repeat Count
+; Configuration of the temperature sensor. The transmit sample
+; period is a multiple of the input sample period. 
 
-; Variables: Main Program, Non-Volatile Memory
+const temp_ch    0x0312
+const temp_txp   0x0313 ; Transmit Sample Period
+const temp_idx   0x0314 ; Sample Index
+const tmp_chb    0x0315 ; Temperature counter, HI
+const tmp_clb    0x0316 ; Temperature counter, LO
+const temp_hi    0x0317 ; Saved temperature measurement, HI
+const temp_lo    0x0318 ; Saved temperature measurement, LO
 
-const nvm_cnth   0x0316 ; Counter for NVM transmission, HI
-const nvm_cntl   0x0317 ; Counter for NVM transmission, LO
+; Configuration of the accelerometer.
+
+const acc_ch     0x0319
+const acc_txp    0x031A ;
+const acc_idx    0x031B ;
+const bma_state  0x031C ;
+const bma_rate   0x031D ;
+const bma_range  0x031E ;
+
+; Configuration of NVM transmission.
+
+const nvm_ch     0x031F ;
+const nvm_txp    0x0320 ; The NVM signal transmit period
+const nvm_idx    0x0321 ;
+const nvm_cnth   0x0322 ; Counter for NVM transmission, HI
+const nvm_cntl   0x0323 ; Counter for NVM transmission, LO
+
+; Variables: Command Reception and Response
+
+const Sack_key   0x0380 ; Acknowledgement key
+const ccmdb      0x0381 ; Copy of Command Byte
+
+; Constants: Non-volatile memory password.
+
+const nvm_pssh     0xA3
+const nvm_pssl     0x62
 
 ; Constants: Status Register Bit Masks
 
@@ -117,14 +151,6 @@ const sr_rck       0x80 ; Current Value of Reference Clock
 
 const tx_txi       0x01 ; Assert transmit initiate
 const tx_txwp      0x02 ; Assert transmit warm-up
-
-; Constants: Auxiliary message types.
-
-const at_id           1 ; Identification
-const at_ack          2 ; Acknowledgements
-const at_batt         3 ; Battery Measurement
-const at_conf         4 ; Confirmation
-const at_ver          5 ; Version
 
 ; Constants: Generic Bit Masks
 
@@ -162,24 +188,25 @@ const tmp_period      8 ; Temperature update period in 1/4 s
 const lon_ms         20 ; Lamp on time in milliseconds
 const loff_ms       200 ; Lamp off time in milliseconds
 
+; Constants: Auxiliary message types.
+
+const at_id           1 ; Identification
+const at_ack          2 ; Acknowledgements
+const at_batt         3 ; Battery Measurement
+const at_conf         4 ; Confirmation
+const at_ver          5 ; Version
+
 ; Constants: Command Codes
 
-const op_stop         0 ; 0 operands
-const op_start        1 ; 8 operands
-const op_xon          2 ; 2 operand
-const op_xoff         3 ; 0 operands
-const op_batt         4 ; 0 operands
-const op_id           5 ; 0 operands
-const op_pgld         6 ; 2 operands
-const op_pgon         7 ; 0 operands
-const op_pgoff        8 ; 0 operands
-const op_pgrst        9 ; 0 operands
-const op_shdn        10 ; 0 operands
-const op_ver         11 ; 0 operands
-const op_lon         12 ; 0 operands
-const op_loff        13 ; 0 operands
-const op_zon         14 ; 0 operands
-const op_zoff        15 ; 0 operands
+const op_id           5 ;
+const op_ver         11 ; 
+const op_ton         16 ; 
+const op_toff        17 ;
+const op_zon         18 ; 
+const op_zoff        19 ;
+const op_nvmwr       20 ;
+const op_lon         30 ;
+const op_loff        31 ; 
 
 ; Constants: Non-Volatile Memory. The M24C16 EEPROM provides 
 ; 2K x 8 of NVM with an I2C interface. We can read 1-2048 
@@ -491,7 +518,7 @@ call i2c_wr
 ld A,bma_pctrl
 push A
 pop L
-ld A,bma_enable
+ld A,(bma_state)
 ld (IX),A
 ld A,1
 push A
@@ -508,7 +535,7 @@ dly A
 ld A,bma_aconf 
 push A
 pop L
-ld A,bma_1hz
+ld A,(bma_rate)
 ld (IX),A
 ld A,1
 push A
@@ -520,7 +547,7 @@ call i2c_wr
 ld A,bma_arange
 push A
 pop L
-ld A,bma_16g
+ld A,(bma_range)
 ld (IX),A
 ld A,1
 push A
@@ -642,64 +669,129 @@ jp z,int_xmit_done  ; skip transmit if not set.
 ld A,bit3_mask      ; Reset this interrupt
 ld (mmu_irst),A     ; with the bit three mask.
 
-ld A,(xmit_ch)      ; Load A with telemetry channel number
-ld (mmu_xch),A      ; and write the transmit channel register.
-
-; We are assigning transmit channel numbers to ADC inputs,
-; temperature sensor, NVM, and accelerometer in this
-; prototype code, so we can read any of them one at a time.
-; The selection will be based upon the lower nibble of the
-; channel number, which has range 1-14. Channels 1-8 are for
-; the inputs AC/DC. Channel 9 for temperature. Channel 10 for
-; NVM, 11 for accelerometer, 12 for the state of the LED,
-; 13-14 are for the device identifier.
-
-and A,0x0F
-push A
-pop B
-dec A
-and A,0x08
-jp z,int_xmit_adc
-push B
-pop A
-sub A,9
-jp z,int_xmit_temp
-push B
-pop A
-sub A,10
-jp z,int_xmit_nvm
-push B
-pop A
-sub A,11
-jp z,int_xmit_acc
-push B
-pop A
-sub A,12
-jp z,int_xmit_led
-jp int_xmit_id
-
 ; Transmit a temperature measurement. After that, we decrement
 ; the two-byte temperature period counter. When it reaches zero,
 ; update the temperature measurement and reset the counter.
 
 int_xmit_temp:
+ld A,(temp_txp)
+add A,0
+jp z,int_xmit_temp_done
+ld A,(temp_idx)
+add A,0
+dec A
+ld (temp_idx),A
+jp nz,int_xmit_temp_done
+ld A,(temp_txp)
+ld (temp_idx),A
+ld A,(temp_ch)
+ld (mmu_xch),A
 ld A,(temp_hi)
 ld (mmu_xhb),A
 ld A,(temp_lo)
 ld (mmu_xlb),A
+ld A,tx_txi
+ld (mmu_xcr),A
+ld A,tx_delay 
+dly A
 ld A,(tmp_clb)
 sub A,1
 ld (tmp_clb),A
 ld A,(tmp_chb)
 sbc A,0
 ld (tmp_chb),A
-jp p,int_xmit_rdy
+jp p,int_xmit_temp_done
 ld A,tmp_period
 ld (tmp_chb),A
 ld A,0
 ld (tmp_clb),A
 call tmp_single
-jp int_xmit_rdy
+int_xmit_temp_done:
+
+; Transmit an accelerometer measurement. The byte
+; ordering on the accelerometer is little-endian.
+
+int_xmit_acc:
+ld A,(acc_txp)
+add A,0
+jp z,int_xmit_acc_done
+ld A,(acc_idx)
+dec A
+ld (acc_idx),A
+jp nz,int_xmit_acc_done
+ld A,(acc_txp)
+ld (acc_idx),A
+ld A,(acc_ch)
+ld (mmu_xch),A
+ld A,bma_addr
+push A
+pop H
+ld A,bma_x
+push A
+pop L
+ld IX,scr_bot
+ld A,2
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
+add A,off_16bs   
+ld (mmu_xhb),A
+dec IX
+ld A,(IX)
+ld (mmu_xlb),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+ld A,tx_delay 
+dly A
+int_xmit_acc_done:
+
+; The NVM transmission.
+
+int_xmit_nvm:
+ld A,(nvm_txp)
+add A,0
+jp z,int_xmit_nvm_done
+ld A,(nvm_idx)
+dec A
+ld (nvm_idx),A
+jp nz,int_xmit_nvm_done
+ld A,(nvm_txp)
+ld (nvm_idx),A
+ld A,(nvm_ch)
+ld (mmu_xch),A
+ld A,(nvm_cntl)
+and A,0xFE
+add A,2
+ld (nvm_cntl),A
+push A
+pop L
+ld A,(nvm_cnth)
+adc A,0
+and A,0x07
+ld (nvm_cnth),A
+or A,nvm_addr
+push A
+pop H
+ld IX,scr_bot
+ld A,2
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
+ld (mmu_xlb),A
+dec IX
+ld A,(IX)
+ld (mmu_xhb),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+ld A,tx_delay 
+dly A
+int_xmit_nvm_done:
+
+jp int_xmit_done
 
 ; Read a sample from an ADC and transmit. We apply AC coupling for
 ; channel numbers for which the lower nibble is 1-4 and DC coupling
@@ -712,7 +804,7 @@ int_xmit_adc:
 ; index. Leaving the address of the first sample (index zero) in
 ; register B.
 
-ld A,(xmit_ch)
+ld A,(x1_ch)
 dec A
 and A,0x03
 rrc A
@@ -797,96 +889,7 @@ ld A,(mmu_accdh)
 ld (mmu_xhb),A
 ld A,(mmu_accdl)
 ld (mmu_xlb),A
-jp int_xmit_rdy
 
-; Read two bytes from the non-volatile memory.
-
-int_xmit_nvm:
-ld A,(nvm_cntl)
-and A,0xFE
-add A,2
-ld (nvm_cntl),A
-push A
-pop L
-
-ld A,(nvm_cnth)
-adc A,0
-and A,0x07
-ld (nvm_cnth),A
-or A,nvm_addr
-push A
-pop H
-
-ld IX,scr_bot
-
-ld A,2
-push A
-pop C
-
-call i2c_rd
-
-dec IX
-ld A,(IX)
-ld (mmu_xlb),A
-dec IX
-ld A,(IX)
-ld (mmu_xhb),A
-jp int_xmit_rdy
-
-; Transmit an accelerometer measurement. The byte
-; ordering on the accelerometer is little-endian.
-
-int_xmit_acc:
-ld A,bma_addr
-push A
-pop H
-ld A,bma_x
-push A
-pop L
-ld IX,scr_bot
-ld A,2
-push A
-pop C
-call i2c_rd
-dec IX
-ld A,(IX)
-add A,off_16bs   
-ld (mmu_xhb),A
-dec IX
-ld A,(IX)
-ld (mmu_xlb),A
-jp int_xmit_rdy
-
-; Transmit the state of the LED, and also, hidden
-; in the lower byte, the status register.
-
-int_xmit_led:
-ld A,(mmu_led)
-rrc A
-or A,0x40
-ld (mmu_xhb),A
-ld A,(mmu_sr)
-ld (mmu_xlb),A
-jp int_xmit_rdy
-
-; Transmit the device identifier.
-
-int_xmit_id:
-ld A,id_hi 
-ld (mmu_xhb),A
-ld A,id_lo 
-ld (mmu_xlb),A
-jp int_xmit_rdy
-
-; Ready to transmit. The sample bytes and channel number are 
-; loaded in their respective registers. Now all we need to 
-; do is initiate and wait.
-
-int_xmit_rdy:
-ld A,tx_txi         ; Load transmit initiate bit
-ld (mmu_xcr),A      ; and write to transmit control register.
-ld A,tx_delay       ; Wait for transmit to
-dly A               ; complete.
 int_xmit_done:
 
 ; Restore registers.
@@ -1394,97 +1397,35 @@ call annc_ack        ; Acknowledge.
 jp cmd_loop
 check_zon_end:
 
-; Start data transmission.
+; Start telemetry protocol. We set the number-four interrupt
+; period to the sample period and unmask it.
 
-check_xon:
+check_ton:
 ld A,(ccmdb)
-sub A,op_xon
-jp nz,check_xon_end
-call get_cmd_byte    ; Read the telemetry channel number
-ld (xmit_ch),A       ; and save in memory.
-call get_cmd_byte    ; Read xmit period minus one. 
-
-check_xon_255:
-ld A,(ccmdb)
-sub A,255
-jp nz,check_xon_127
-ld A,8
-ld (x1_txp),A 
-ld A,2
-ld (x1_mult),A
-jp check_xon_go
-
-check_xon_127:
-ld A,(ccmdb)
-sub A,127
-jp nz,check_xon_63
-ld A,4
-ld (x1_txp),A 
-ld A,4
-ld (x1_mult),A
-jp check_xon_go
-
-check_xon_63:
-ld A,(ccmdb)
-sub A,63
-jp nz,check_xon_31
-ld A,2
-ld (x1_txp),A 
-ld A,8
-ld (x1_mult),A
-jp check_xon_go
-
-check_xon_31:
-ld A,1
-ld (x1_txp),A 
-ld A,16
-ld (x1_mult),A
-
-check_xon_go:
-ld A,(xmit_ch)
-dec A
-and A,bit2_mask
-srl A
-srl A
-ld (mmu_acfg),A
-ld A,(x1_txp)        ; Load the transmit period,
-dec A                ; decrement,
-ld (x1_idx),A        ; and write to the sample index.
+sub A,op_ton
+jp nz,check_ton_end
 ld A,sample_period   ; Load the sample period,
 ld (mmu_i4p),A       ; write interrupt timer four.
 ld A,(mmu_imsk)      ; Enable interrupt timer four
 or A,bit3_mask       ; with bit three of interrupt
 ld (mmu_imsk),A      ; mask.
-call annc_ack        ; Acknowledge xon.
-check_xon_end:
+call annc_ack        ; Acknowledge ton.
+check_ton_end:
 
-; Stop data transmission.
+; Stop telemetry protocol. We set the number-four interrupt
+; period to zero and mask it.
 
-check_xoff:
+check_toff:
 ld A,(ccmdb)
-sub A,op_xoff
-jp nz,check_xoff_end
+sub A,op_toff
+jp nz,check_toff_end
 ld A,0               ; Disable
 ld (mmu_i4p),A       ; timer interrupt.
 ld A,(mmu_imsk)      ; Mask timer interrupt
 and A,bit3_clr       ; with bit three of
 ld (mmu_imsk),A      ; interrupt mask.
 call annc_ack        ; Acknowledge xoff.
-check_xoff_end:
-
-; Battery voltage measurement request instruction. This instruction
-; takes no parameters. We call the battery measurement routine
-; immediately, which will take about fifty microseconds. Battery 
-; measurements are their own acknowledgement, so we do not transmit
-; an acknowledgement.
-
-check_battery:
-ld A,(ccmdb)
-sub A,op_batt
-jp nz,check_battery_end
-call annc_batt       
-jp cmd_loop
-check_battery_end:
+check_toff_end:
 
 ; Identification request instruction. This instruction takes no
 ; operands. We call the identification transmission routine, which
@@ -1502,10 +1443,10 @@ check_identify_end:
 
 ; Write bytes to the non-volatile memory at a particular address.
   
-check_pgld:
+check_nvmwr:
 ld A,(ccmdb)
-sub A,op_pgld
-jp nz,check_pgld_end
+sub A,op_nvmwr
+jp nz,check_nvmwr_end
 call get_cmd_byte  ; Get the number of program bytes.
 push A             ; and move
 pop B              ; to B.
@@ -1538,7 +1479,7 @@ srl A              ; pages to be written.
 call nvm_wr        ; Call the write routine and
 call annc_ack      ; acknowledge.
 jp cmd_loop        ; We are done with this instruction.
-check_pgld_end:
+check_nvmwr_end:
 
 ; Version request instruction. This instruction takes no
 ; operands. We call the version transmit routine.
@@ -1593,9 +1534,11 @@ ret
 main:
 
 ; Disable interruupts.
+
 seti
 
 ; Initialize the stack pointer.
+
 ld HL,stack_bot
 ld SP,HL
 
@@ -1605,24 +1548,6 @@ ld A,0x01
 ld (mmu_led),A
 ld A,lon_ms
 call delay_ms
-
-; Initialize variable locations to zero.
-
-ld IX,var_bot
-ld A,num_vars
-push A
-pop B
-ld A,0
-main_var_init_loop:
-ld (IX),A
-inc IX
-dec B
-jp nz,main_var_init_loop
-
-; Initialize certain variables to values other than zero.
-
-ld A,id_lo         ; Set the primary channel number to the
-ld (xmit_ch),A     ; low byte of the device identifier.
 
 ; Turn off the lamp. This is the end of the first start-up
 ; flash.
@@ -1642,22 +1567,61 @@ ld (mmu_dfr),A     ; Clear diagnostic flags to zero.
 ld (mmu_i3p),A     ; Disable interrupt timer three.
 ld (mmu_i4p),A     ; Disable interrupt timer four.
 ld (mmu_imsk),A    ; Mask all interrupts.
-ld (x1_idx),A      ; Clear the X1 sample index.
-ld (x2_idx),A      ; Clear the X2 sample index.
-ld (x3_idx),A      ; Clear the X3 sample index.
-ld (x4_idx),A      ; Clear the X4 sample index.
-ld (x1_txp),A      ; Clear the X1 sample period.
-ld (x2_txp),A      ; Clear the X2 sample period.
-ld (x3_txp),A      ; Clear the X3 sample period.
-ld (x4_txp),A      ; Clear the X4 sample period.
-ld (x1_mult),A     ; Clear the X1 multiplier.
-ld (x2_mult),A     ; Clear the X2 multiplier.
-ld (x3_mult),A     ; Clear the X3 multiplier.
-ld (x4_mult),A     ; Clear the X4 multiplier.
 ld A,0xFF          ; Prepare ones to write.
 ld (mmu_irst),A    ; Reset all interrupts.
 ld A,f_low         ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
+
+; Configure telemetry protocol.
+
+ld A,0
+ld (x1_ch),A   
+ld (x2_ch),A
+ld (x3_ch),A
+ld (x4_ch),A
+ld (x1_idx),A
+ld (x2_idx),A
+ld (x3_idx),A
+ld (x4_idx),A
+ld (x1_txp),A
+ld (x2_txp),A
+ld (x3_txp),A
+ld (x4_txp),A
+ld (x1_mult),A
+ld (x2_mult),A
+ld (x3_mult),A
+ld (x4_mult),A
+ld A,9
+ld (temp_ch),A
+ld A,32
+ld (temp_txp),A
+ld (temp_idx),A
+ld A,0
+ld (temp_hi),A
+ld (temp_lo),A
+ld A,tmp_period
+ld (tmp_chb),A
+ld A,0
+ld (tmp_clb),A
+ld A,14
+ld (acc_ch),A
+ld A,4
+ld (acc_txp),A
+ld (acc_idx),A
+ld A,bma_enable
+ld (bma_state),A
+ld A,bma_100hz
+ld (bma_rate),A
+ld A,bma_16g
+ld (bma_range),A
+ld A,13
+ld (nvm_ch),A
+ld A,64
+ld (nvm_txp),A
+ld (nvm_idx),A
+ld A,0
+ld (nvm_cnth),A
+ld (nvm_cntl),A
 
 ; Turn on the lamp. This is the start of the second start-up flash.
 
@@ -1670,14 +1634,6 @@ call delay_ms
 
 call bma_config
 call tmp_single
-
-; Set the period with which we will read out the thermometer, in
-; units of interrupt periods.
-
-ld A,tmp_period
-ld (tmp_chb),A
-ld A,0
-ld (tmp_clb),A
 
 ; Turn off the lamp. This is the end of the second start-up
 ; flash.
