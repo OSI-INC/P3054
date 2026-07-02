@@ -111,37 +111,37 @@ const dc_in      0x034F
 ; high byte equals the period, we read thesensor and
 ; initiate another conversion.
 
-const temp_xch   0x0340 ; Transmit Channel 
-const temp_xpd   0x0341 ; Transmit Period
-const temp_idx   0x0342 ; Index
-const temp_mpd   0x0343 ; Measurement Period
-const temp_mth   0x0344 ; Measurement Timer, HI
-const temp_mtl   0x0345 ; Measurement Timer, LO
-const temp_svh   0x0346 ; Saved, HI
-const temp_svl   0x0347 ; Saved, LO
+const temp_xch   0x0350 ; Transmit Channel 
+const temp_xpd   0x0351 ; Transmit Period
+const temp_idx   0x0352 ; Index
+const temp_mpd   0x0353 ; Measurement Period
+const temp_mth   0x0354 ; Measurement Timer, HI
+const temp_mtl   0x0355 ; Measurement Timer, LO
+const temp_svh   0x0356 ; Saved, HI
+const temp_svl   0x0357 ; Saved, LO
 
 ; Configuration of the BMA423 accelerometer. The state is a code
 ; for enabled or disabled. The rate is a code for the update
 ; frequency. The range is a code for the acceleration dynamic 
 ; range.
 
-const acc_xch    0x0350 ; Transmit Channel
-const acc_xpd    0x0351 ; Transmit Period
-const acc_idx    0x0352 ; Index
-const bma_state  0x0353 ; Enable or Disable
-const bma_rate   0x0354 ; Update Rate
-const bma_range  0x0355 ; Dynamic Range
+const acc_xch    0x0360 ; Transmit Channel
+const acc_xpd    0x0361 ; Transmit Period
+const acc_idx    0x0362 ; Index
+const bma_state  0x0363 ; Enable or Disable
+const bma_rate   0x0364 ; Update Rate
+const bma_range  0x0365 ; Dynamic Range
 
 ; Configuration of NVM readout and transmission. Each transmit
 ; sample is a new byte read from the NVM, in which the top
 ; byte is the byte read and the bottom byte is the bottom
 ; eight bits of the address.
 
-const nvm_xch    0x0360 ; Transmit Channel
-const nvm_xpd    0x0361 ; Transmit Period
-const nvm_idx    0x0362 ; Index
-const nvm_xah    0x0363 ; Transmit Address, HI
-const nvm_xal    0x0364 ; Transmit Address, LO
+const nvm_xch    0x0370 ; Transmit Channel
+const nvm_xpd    0x0371 ; Transmit Period
+const nvm_idx    0x0372 ; Index
+const nvm_xah    0x0373 ; Transmit Address, HI
+const nvm_xal    0x0374 ; Transmit Address, LO
 
 ; Variables: Command Reception and Response
 
@@ -288,7 +288,7 @@ const bma_100hz    0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
 const bma_enable   0x04 ; For PWR_CTRL, enable data acquisition.
 const bma_disable  0x00 ; For PWR_CTRL, disable data acquisition.
 const bma_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
-const bma_sdly       50 ; Startup delay in RCK periods.
+const bma_sdly        2 ; Startup delay in milliseconds
 
 ; Constants: Sample Controller.
 
@@ -327,6 +327,7 @@ jp interrupt
 ; service completes.
 
 delay_ms:
+
 push F
 push A
 push B
@@ -553,7 +554,7 @@ call i2c_wr
 ; Wait for the sensor to configure.
 
 ld A,bma_sdly
-dly A 
+call delay_ms 
 
 ; Configure update rate by writing to ACC_CONF.
 
@@ -726,7 +727,7 @@ ld A,(temp_mth)
 sbc A,0
 ld (temp_mth),A
 jp p,int_xmit_temp_done
-ld A,temp_mpd
+ld A,(temp_mpd)
 ld (temp_mth),A
 ld A,0
 ld (temp_mtl),A
