@@ -18,12 +18,12 @@ const id_hi        0xAA ; 0-255, no restrictions
 const id_lo        0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
 const rf_low         14 ; Radio frequency calibration.
 
-; CPU Address Map Boundary Constants. The 256 bytes are the 
-; control registers, which are complimented by a RAM shadow
-; so that the most recent byte written can be read back.
-; The next 256 bytes are for the program stack. The scratch-
-; pad is 256 for memory transfers. The top 256 bytes are
-; for variables. 
+; CPU Address Map Boundaries. The first 256-byte block is  
+; the control register space. This is shadowed by RAM so
+; that all write-only registers can be read back. The next
+; block is the program stack. After that we have the scratch-
+; pad block and the program variable block. The total memory
+; size is 1 KByte.
 
 const ctrl_bot   0x0000 ; Control Registers
 const stack_bot  0x0100 ; Program Stack
@@ -65,6 +65,11 @@ const mmu_adcdl  0x001C ; ADC Data LO Byte (Read)
 const mmu_accdh  0x001D ; Accumulator HI Byte (Read)
 const mmu_accdl  0x001E ; Accumulator LO Byte (Read)
 const mmu_msr    0x001F ; Impedance Measurement Control (Write/Readback)
+
+; Firmware constants.
+
+const sm_blksz       32 ; Sample Memory Block Size (bytes)
+const sm_blkmsk    0x80 ; Sample Memory Address Mask
 
 ; The variable space will be entirely written on start-up by a
 ; a block read from the NVM. Before copying, however, we check
@@ -820,23 +825,55 @@ ld A,tx_delay
 dly A
 int_xmit_nvm_done:
 
-; Sample and transmit X1 input. We sample all enabled inputs
-; on every interrupt, and transmit an accumulated sample
-; every transmit sample period.
+; Sample and transmit X1-X4 inputs. We sample all enabled inputs
+; on every interrupt. We transmit an accumulated sample every 
+; transmit sample period. We access the X1-X4 control variables
+; using the fact that they are offset from one another by sixteen
+; bytes. We point IX at the variable locations as needed. The
+; control bytes are x1_xch, x1_xpd, x1_idx, x1_mult, and repeat.
 
-int_xmit_x1:
+int_xmit_x:
 
-; If the transmit period is zero, the channel is disabled.
+; The first channel is X1. We store the base address of its
+; control variables in HL. In A we store the base address
+; of the sample memory block that contains the samples for
+; channel X1. We will be incrementing this offset by the
+; sample block size for the next input.
+ 
+ld HL,x1_xch
+ld A,0
 
-ld A,(x1_xpd)
+int_xmit_x_loop:
+
+; The base address of this input's control variables is stored
+; in HL. We move into IX. We push our sample memory block 
+; address onto the stack.
+
+push H
+push L
+pop IX
+push A
+
+; Move IX to point to the transmit period. If the transmit 
+; period is zero, the channel is disabled, so move to the 
+; next channel. 
+
+inc IX
+ld A,(IX)
 add A,0
-jp z,int_xmit_x1_done
+jp z,int_xmit_x_next
 
-; Construct the sample address out of the input number and the
-; index.
+; We move IX to point to the index. We construct the sample 
+; address out of the input number and the sample block
+; address.  
 
-ld A,(x1_idx)
-or A,0x00
+inc IX
+ld A,(IX)
+push A
+pop B
+pop A
+push A
+or A,B
 
 ; Select a location in sample mory and initiate an ADC read. 
 ; The sample address selects which ADC will be read out and
@@ -853,20 +890,28 @@ dly A
 ; Decrement the sample index. If zero or greater, we are not ready 
 ; to transmit.
 
-ld A,(x1_idx)
+ld A,(IX)
 dec A
-ld (x1_idx),A
-jp p,int_xmit_x1_done
+ld (IX),A
+jp p,int_xmit_x_next
 
-; The sample index has reached zero, so we have finished storing 
-; samples. Reset the sample index to the transmit period minus one. 
-; Save the transmit period in C for later.
+; Move IX to point to the sample period. The sample index has reached 
+; zero, so we have finished storing samples. Reset the sample index to 
+; the transmit period. Save the transmit period in C for later.
 
-ld A,(x1_xpd)
+dec IX
+ld A,(IX)
+inc IX
+ld (IX),A
 push A
 pop C
-dec A
-ld (x1_idx),A
+
+; Load the sample multiplier for this channel and store in E.
+
+inc IX
+ld A,(IX)
+push A
+pop E
 
 ; Point IX at the accumulator control register. Point IY at the 
 ; sample address register, to wich we will write sample addresses
@@ -886,9 +931,6 @@ ld IY,mmu_saddr
 
 ld A,sm_rst
 ld (IX),A
-ld A,(x1_mult)
-push A
-pop E
 
 ; The accumulator loop goes through x1_txp samples in the sample 
 ; memory and adds each of them x1_mult times to the accumulator.
@@ -896,20 +938,20 @@ pop E
 ; stored it earlier, into A, and loading it into the sample 
 ; address register.
 
-int_xmit_x1a_loop:
+int_xmit_xa_loop:
   push B
   pop A
   ld (IY),A
   push E
   pop D
   ld A,sm_add
-  int_xmit_x1m_loop:
+  int_xmit_xm_loop:
     ld (IX),A
     dec D
-  jp nz,int_xmit_x1m_loop
+  jp nz,int_xmit_xm_loop
   inc B
   dec C
-jp nz,int_xmit_x1a_loop
+jp nz,int_xmit_xa_loop
 
 ; The accumulator now contains our transmit sample, so load 
 ; bits 17 downto 10 in the transmit hi byte and bits 9
@@ -922,16 +964,45 @@ ld (mmu_xlb),A
 
 ; Transmit the x1 sample.
 
-ld A,(x1_xch)
+push H
+push L
+pop IX
+ld A,(IX)
 ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
 ld A,tx_delay 
 dly A
 
-; Done with X1 sampling and transmission.
+; Done with this input, time to move on to the next one.
 
-int_xmit_x1_done:
+int_xmit_x_next:
+
+; Increment our address pointer by sixteen bytes. We know 
+; it won't carry to the upper byte so we don't bother dealing 
+; with a carry into H.
+
+push L
+pop A
+add A,16
+push A
+pop L
+
+; Our sample memory block address has been on the stack.
+; Pop it now.
+
+pop A
+
+; Increment the sample memory block address by the sample
+; memory block size. We test to see if we our block 
+; address is still inside the bounds of the sample memory, 
+; and if so, we jump to handle the next input.
+
+add A,sm_blksz
+push A
+and A,sm_blkmsk
+pop A
+jp z,int_xmit_x_loop
 
 ; Done with transmit interrupt.
 
