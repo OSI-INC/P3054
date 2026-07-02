@@ -746,8 +746,6 @@ ld (acc_idx),A
 jp nz,int_xmit_acc_done
 ld A,(acc_xpd)
 ld (acc_idx),A
-ld A,(acc_xch)
-ld (mmu_xch),A
 ld A,bma_addr
 push A
 pop H
@@ -766,6 +764,8 @@ ld (mmu_xhb),A
 dec IX
 ld A,(IX)
 ld (mmu_xlb),A
+ld A,(acc_xch)
+ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
 ld A,tx_delay 
@@ -788,8 +788,6 @@ ld (nvm_idx),A
 jp nz,int_xmit_nvm_done
 ld A,(nvm_xpd)
 ld (nvm_idx),A
-ld A,(nvm_xch)
-ld (mmu_xch),A
 ld A,(nvm_xal)
 add A,1
 ld (nvm_xal),A
@@ -813,6 +811,8 @@ ld (mmu_xhb),A
 push L
 pop A
 ld (mmu_xlb),A
+ld A,(nvm_xch)
+ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
 ld A,tx_delay 
@@ -821,25 +821,20 @@ int_xmit_nvm_done:
 
 jp int_xmit_done
 
+; Construct the sample address out of the input number and the
+; index.
 
-; Compose the sample address out of the channel number and the
-; index. Leaving the address of the first sample (index zero) in
-; register B.
-
-ld A,(x1_xch)
-dec A
-and A,0x03
-rrc A
-rrc A
-push A
-pop B
+int_xmit_x1:
 ld A,(x1_idx)
-or A,B
+or A,0x00
 
-; Set the sample address and initiate an ADC read cycle. We don't 
-; need to wait for completion because we have enough stuff to do 
-; before we change the sample address again. The readout continues 
-; in the background.
+; Select a location in sample mory and initiate an ADC read. 
+; The sample address selects which ADC will be read out and
+; directs the fourteen-bit sample the ADC produces to the 
+; correct location in the sample memory. We don't need to
+; wait for the readout to complete because we have enough stuff 
+; to do before we change the sample address again. The readout 
+; and storage continues in the background.
 
 ld (mmu_saddr),A
 ld A,sm_read
@@ -853,9 +848,9 @@ dec A
 ld (x1_idx),A
 jp p,int_xmit_done
 
-; We have finished storing samples. Reset the sample index
-; to the transmit period minus one. Save the transmit period
-; in C for later.
+; The sample index has reached zero, so we have finished storing 
+; samples. Reset the sample index to the transmit period minus one. 
+; Save the transmit period in C for later.
 
 ld A,(x1_xpd)
 push A
@@ -863,13 +858,15 @@ pop C
 dec A
 ld (x1_idx),A
 
-; Point to the accumulator control register with IX and the 
-; sample address with IY.
+; Point IX at the accumulator control register. Point IY at the 
+; sample address register, to wich we will write sample addresses
+; that select which fourteen-bit sample in the sample memory will 
+; be used as input to the eighteen-bit accumulator.
 
 ld IX,mmu_smcr
 ld IY,mmu_saddr
 
-; Reset the accumulator. We are going to add txp samples to 
+; Reset the accumulator. We are going to add x1_txp samples to 
 ; the accumulator so as to produce a sum of the correct 
 ; magnitude. These could be sixteen different samples, sixteen 
 ; copies of a single sample, or some other such combination. 
@@ -883,8 +880,8 @@ ld A,(x1_mult)
 push A
 pop E
 
-; The accumulator loop goes through txp samples in the sample 
-; memory and adds each of them mult times to the accumulator.
+; The accumulator loop goes through x1_txp samples in the sample 
+; memory and adds each of them x1_mult times to the accumulator.
 ; We begin by moving the first sample address from B, where we
 ; stored it earlier, into A, and loading it into the sample 
 ; address register.
@@ -904,13 +901,23 @@ int_xmit_acc_loop:
   dec C
 jp nz,int_xmit_acc_loop
 
-; The accumulator now contains our transmit sample, so
-; load it into the transmitter.
+; The accumulator now contains our transmit sample, so load 
+; bits 17 downto 10 in the transmit hi byte and bits 9
+; downto 2 into the transmit lo byte.
 
 ld A,(mmu_accdh)
 ld (mmu_xhb),A
 ld A,(mmu_accdl)
 ld (mmu_xlb),A
+
+; Transmit the x1 sample.
+
+ld A,(x1_xch)
+ld (mmu_xch),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+ld A,tx_delay 
+dly A
 
 int_xmit_done:
 
@@ -1591,26 +1598,35 @@ ld (mmu_rfc),A     ; calibration to the firmware.
 
 ; Configure analog inputs.
 
-ld A,0
-ld (x1_xch),A   
+ld A,1
+ld (x1_xch),A  
+inc A 
 ld (x2_xch),A
+inc A
 ld (x3_xch),A
+inc A
 ld (x4_xch),A
-ld (x1_idx),A
-ld (x2_idx),A
-ld (x3_idx),A
-ld (x4_idx),A
+
+ld A,sps_256
 ld (x1_xpd),A
 ld (x2_xpd),A
 ld (x3_xpd),A
 ld (x4_xpd),A
+ld (x1_idx),A
+ld (x2_idx),A
+ld (x3_idx),A
+ld (x4_idx),A
+
+ld A,4
 ld (x1_mult),A
 ld (x2_mult),A
 ld (x3_mult),A
 ld (x4_mult),A
+
 ld A,0x00
 ld (dc_in),A
 ld (mmu_acfg),A
+
 call adc_calib
 
 ; Configure the TMP117 temperature sensor and its telemetry
