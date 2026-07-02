@@ -74,62 +74,77 @@ const key_hb     0x0300
 const key_lb     0x0301
 
 ; Configuration of the four biopotential inputs. For each we
-; have a telemetry channel, transmit sample period, sample
-; index, and sample multiplier. The transmit sample period
-; we specify as a multiple of the input sample period.
+; have a transmit channel, transmit period, index, and multiplier. 
+; The transmit period we specify as a multiple of the interrupt
+; period. The index we use in the transmit interrupt to keep 
+; track of the period and generate a sample memory address to
+; store the current sample. The multiplier we use to add each 
+; sample multiple times to the accumulator so as to produce a
+; shift left, bringing the sum of fourteen-bit samples to the
+; top fourteen bits of the eighteen-bit accumulator.
 
-const x1_ch      0x0302 
-const x1_txp     0x0303 
-const x1_idx     0x0304 
-const x1_mult    0x0305 
+const x1_xch     0x0310 ; Transmit Channel
+const x1_xpd     0x0311 ; Transmit Period
+const x1_idx     0x0312 ; Index
+const x1_mult    0x0313 ; Multiplier
 
-const x2_ch      0x0306 
-const x2_txp     0x0307 
-const x2_idx     0x0308 
-const x2_mult    0x0309 
+const x2_xch     0x0320
+const x2_xpd     0x0321 
+const x2_idx     0x0322 
+const x2_mult    0x0323 
 
-const x3_ch      0x030A 
-const x3_txp     0x030B 
-const x3_idx     0x030C 
-const x3_mult    0x030D 
+const x3_xch     0x0330 
+const x3_xpd     0x0331 
+const x3_idx     0x0332 
+const x3_mult    0x0333 
 
-const x4_ch      0x030E 
-const x4_txp     0x030F 
-const x4_idx     0x0310 
-const x4_mult    0x0311 
+const x4_xch     0x0340 
+const x4_xpd     0x0341 
+const x4_idx     0x0342 
+const x4_mult    0x0343 
 
-; Configuration of the temperature sensor. The transmit sample
-; period is a multiple of the input sample period. 
+; Configuration of the TMP117 temperature sensor. The
+; period is in multiples of 250 ms. We have a two-byte
+; timer that is incremented on every interrupt. When its
+; high byte equals the period, we read thesensor and
+; initiate another conversion.
 
-const temp_ch    0x0312
-const temp_txp   0x0313 ; Transmit Sample Period
-const temp_idx   0x0314 ; Sample Index
-const tmp_chb    0x0315 ; Temperature counter, HI
-const tmp_clb    0x0316 ; Temperature counter, LO
-const temp_hi    0x0317 ; Saved temperature measurement, HI
-const temp_lo    0x0318 ; Saved temperature measurement, LO
+const temp_xch   0x0340 ; Transmit Channel 
+const temp_xpd   0x0341 ; Transmit Period
+const temp_idx   0x0342 ; Index
+const temp_mpd   0x0343 ; Measurement Period
+const temp_mth   0x0344 ; Measurement Timer, HI
+const temp_mtl   0x0345 ; Measurement Timer, LO
+const temp_svh   0x0346 ; Saved, HI
+const temp_svl   0x0347 ; Saved, LO
 
-; Configuration of the accelerometer.
+; Configuration of the BMA423 accelerometer. The state is a code
+; for enabled or disabled. The rate is a code for the update
+; frequency. The range is a code for the acceleration dynamic 
+; range.
 
-const acc_ch     0x0319
-const acc_txp    0x031A ;
-const acc_idx    0x031B ;
-const bma_state  0x031C ;
-const bma_rate   0x031D ;
-const bma_range  0x031E ;
+const acc_xch    0x0350 ; Transmit Channel
+const acc_xpd    0x0351 ; Transmit Period
+const acc_idx    0x0352 ; Index
+const bma_state  0x0353 ; Enable or Disable
+const bma_rate   0x0354 ; Update Rate
+const bma_range  0x0355 ; Dynamic Range
 
-; Configuration of NVM transmission.
+; Configuration of NVM readout and transmission. Each transmit
+; sample is a new byte read from the NVM, in which the top
+; byte is the byte read and the bottom byte is the bottom
+; eight bits of the address.
 
-const nvm_ch     0x031F ;
-const nvm_txp    0x0320 ; The NVM signal transmit period
-const nvm_idx    0x0321 ;
-const nvm_cnth   0x0322 ; Counter for NVM transmission, HI
-const nvm_cntl   0x0323 ; Counter for NVM transmission, LO
+const nvm_xch    0x0360 ; Transmit Channel
+const nvm_xpd    0x0361 ; Transmit Period
+const nvm_idx    0x0362 ; Index
+const nvm_xah    0x0363 ; Transmit Address, HI
+const nvm_xal    0x0364 ; Transmit Address, LO
 
 ; Variables: Command Reception and Response
 
-const Sack_key   0x0380 ; Acknowledgement key
-const ccmdb      0x0381 ; Copy of Command Byte
+const Sack_key   0x03F0 ; Acknowledgement key
+const ccmdb      0x03F1 ; Copy of Command Byte
 
 ; Constants: Non-volatile memory password.
 
@@ -181,12 +196,20 @@ const num_vars      255 ; Number of variable bytes to clear at start
 const uprog_tick    163 ; User program interrupt period minus one
 const id_delay       33 ; Identification spacing in TCK periods
 const ms_tick        33 ; One millisecond in RCK periods
-const sample_period  31 ; Sample period in RCK periods
+const int_period     31 ; Interrupt period in RCK periods
 const adc_rdly       16 ; Clock cycles for ADC readout
 const adc_cdly       22 ; Clock cycles for ADC self-calibration
-const tmp_period      8 ; Temperature update period in 1/4 s
 const lon_ms         20 ; Lamp on time in milliseconds
 const loff_ms       200 ; Lamp off time in milliseconds
+const sps_32         32 ; 1/32 s in interrupt periods
+const sps_64         16 ; 1/64 s in interrupt periods
+const sps_128         8 ; 1/128 s in interrupt periods
+const sps_256         4 ; 1/256 s in interrupt periods
+const sps_512         2 ; 1/512 s in interrupt periods
+const sps_1024        1 ; 1/1024 s in interrupt periods
+const spd_500ms       2 ; 1/2 s in 256 * interrupt period
+const spd_1000ms      4 ; 1 s in 256 * interrupt period
+const spd_2000ms      8 ; 2 s in 256 * interrupt period
 
 ; Constants: Auxiliary message types.
 
@@ -435,7 +458,7 @@ pop L
 ld A,2
 push A
 pop C
-ld IX,temp_hi
+ld IX,temp_svh
 call i2c_rd
 dec IX
 dec IX
@@ -512,7 +535,7 @@ push A
 pop C
 call i2c_wr
 
-; Enable or disable data acquisition by writing to the PWR_CTRL 
+; Enable or disable data acquisition by writing to PWR_CTRL 
 ; register.
 
 ld A,bma_pctrl
@@ -530,7 +553,7 @@ call i2c_wr
 ld A,bma_sdly
 dly A 
 
-; Configure accelerometer update rate.
+; Configure update rate by writing to ACC_CONF.
 
 ld A,bma_aconf 
 push A
@@ -542,7 +565,7 @@ push A
 pop C
 call i2c_wr
 
-; Configure for +-16 g range.
+; Configure range by writing to ACC_RANGE.
 
 ld A,bma_arange
 push A
@@ -674,7 +697,7 @@ ld (mmu_irst),A     ; with the bit three mask.
 ; update the temperature measurement and reset the counter.
 
 int_xmit_temp:
-ld A,(temp_txp)
+ld A,(temp_xpd)
 add A,0
 jp z,int_xmit_temp_done
 ld A,(temp_idx)
@@ -682,29 +705,29 @@ add A,0
 dec A
 ld (temp_idx),A
 jp nz,int_xmit_temp_done
-ld A,(temp_txp)
+ld A,(temp_xpd)
 ld (temp_idx),A
-ld A,(temp_ch)
+ld A,(temp_xch)
 ld (mmu_xch),A
-ld A,(temp_hi)
+ld A,(temp_svh)
 ld (mmu_xhb),A
-ld A,(temp_lo)
+ld A,(temp_svl)
 ld (mmu_xlb),A
 ld A,tx_txi
 ld (mmu_xcr),A
 ld A,tx_delay 
 dly A
-ld A,(tmp_clb)
+ld A,(temp_mtl)
 sub A,1
-ld (tmp_clb),A
-ld A,(tmp_chb)
+ld (temp_mtl),A
+ld A,(temp_mth)
 sbc A,0
-ld (tmp_chb),A
+ld (temp_mth),A
 jp p,int_xmit_temp_done
-ld A,tmp_period
-ld (tmp_chb),A
+ld A,temp_mpd
+ld (temp_mth),A
 ld A,0
-ld (tmp_clb),A
+ld (temp_mtl),A
 call tmp_single
 int_xmit_temp_done:
 
@@ -712,16 +735,16 @@ int_xmit_temp_done:
 ; ordering on the accelerometer is little-endian.
 
 int_xmit_acc:
-ld A,(acc_txp)
+ld A,(acc_xpd)
 add A,0
 jp z,int_xmit_acc_done
 ld A,(acc_idx)
 dec A
 ld (acc_idx),A
 jp nz,int_xmit_acc_done
-ld A,(acc_txp)
+ld A,(acc_xpd)
 ld (acc_idx),A
-ld A,(acc_ch)
+ld A,(acc_xch)
 ld (mmu_xch),A
 ld A,bma_addr
 push A
@@ -747,44 +770,46 @@ ld A,tx_delay
 dly A
 int_xmit_acc_done:
 
-; The NVM transmission.
+; The NVM transmission. We transmit bytes read consecutively from
+; the non-volatile memory. We put the byte value in the top eight
+; transmit sample bits. We put the bottom eight bits of the 
+; NVM address in the bottom eight transmit sample bits.
 
 int_xmit_nvm:
-ld A,(nvm_txp)
+ld A,(nvm_xpd)
 add A,0
 jp z,int_xmit_nvm_done
 ld A,(nvm_idx)
 dec A
 ld (nvm_idx),A
 jp nz,int_xmit_nvm_done
-ld A,(nvm_txp)
+ld A,(nvm_xpd)
 ld (nvm_idx),A
-ld A,(nvm_ch)
+ld A,(nvm_xch)
 ld (mmu_xch),A
-ld A,(nvm_cntl)
-and A,0xFE
-add A,2
-ld (nvm_cntl),A
+ld A,(nvm_xal)
+add A,1
+ld (nvm_xal),A
 push A
 pop L
-ld A,(nvm_cnth)
+ld A,(nvm_xah)
 adc A,0
 and A,0x07
-ld (nvm_cnth),A
+ld (nvm_xah),A
 or A,nvm_addr
 push A
 pop H
 ld IX,scr_bot
-ld A,2
+ld A,1
 push A
 pop C
 call i2c_rd
 dec IX
 ld A,(IX)
-ld (mmu_xlb),A
-dec IX
-ld A,(IX)
 ld (mmu_xhb),A
+push L
+pop A
+ld (mmu_xlb),A
 ld A,tx_txi 
 ld (mmu_xcr),A
 ld A,tx_delay 
@@ -804,7 +829,7 @@ int_xmit_adc:
 ; index. Leaving the address of the first sample (index zero) in
 ; register B.
 
-ld A,(x1_ch)
+ld A,(x1_xch)
 dec A
 and A,0x03
 rrc A
@@ -835,7 +860,7 @@ jp p,int_xmit_done
 ; to the transmit period minus one. Save the transmit period
 ; in C for later.
 
-ld A,(x1_txp)
+ld A,(x1_xpd)
 push A
 pop C
 dec A
@@ -1398,14 +1423,14 @@ jp cmd_loop
 check_zon_end:
 
 ; Start telemetry protocol. We set the number-four interrupt
-; period to the sample period and unmask it.
+; period to the interrupt period and unmask it.
 
 check_ton:
 ld A,(ccmdb)
 sub A,op_ton
 jp nz,check_ton_end
-ld A,sample_period   ; Load the sample period,
-ld (mmu_i4p),A       ; write interrupt timer four.
+ld A,int_period      ; Load the interrupt period,
+ld (mmu_i4p),A       ; write to interrupt timer four.
 ld A,(mmu_imsk)      ; Enable interrupt timer four
 or A,bit3_mask       ; with bit three of interrupt
 ld (mmu_imsk),A      ; mask.
@@ -1575,38 +1600,39 @@ ld (mmu_rfc),A     ; calibration to the firmware.
 ; Configure telemetry protocol.
 
 ld A,0
-ld (x1_ch),A   
-ld (x2_ch),A
-ld (x3_ch),A
-ld (x4_ch),A
+ld (x1_xch),A   
+ld (x2_xch),A
+ld (x3_xch),A
+ld (x4_xch),A
 ld (x1_idx),A
 ld (x2_idx),A
 ld (x3_idx),A
 ld (x4_idx),A
-ld (x1_txp),A
-ld (x2_txp),A
-ld (x3_txp),A
-ld (x4_txp),A
+ld (x1_xpd),A
+ld (x2_xpd),A
+ld (x3_xpd),A
+ld (x4_xpd),A
 ld (x1_mult),A
 ld (x2_mult),A
 ld (x3_mult),A
 ld (x4_mult),A
 ld A,9
-ld (temp_ch),A
-ld A,32
-ld (temp_txp),A
+ld (temp_xch),A
+ld A,sps_32
+ld (temp_xpd),A
 ld (temp_idx),A
 ld A,0
-ld (temp_hi),A
-ld (temp_lo),A
-ld A,tmp_period
-ld (tmp_chb),A
+ld (temp_svh),A
+ld (temp_svl),A
+ld A,spd_1000ms
+ld (temp_mpd),A
+ld (temp_mth),A
 ld A,0
-ld (tmp_clb),A
+ld (temp_mtl),A
 ld A,14
-ld (acc_ch),A
-ld A,4
-ld (acc_txp),A
+ld (acc_xch),A
+ld A,sps_128
+ld (acc_xpd),A
 ld (acc_idx),A
 ld A,bma_enable
 ld (bma_state),A
@@ -1615,13 +1641,13 @@ ld (bma_rate),A
 ld A,bma_16g
 ld (bma_range),A
 ld A,13
-ld (nvm_ch),A
-ld A,64
-ld (nvm_txp),A
+ld (nvm_xch),A
+ld A,sps_1024
+ld (nvm_xpd),A
 ld (nvm_idx),A
 ld A,0
-ld (nvm_cnth),A
-ld (nvm_cntl),A
+ld (nvm_xah),A
+ld (nvm_xal),A
 
 ; Turn on the lamp. This is the start of the second start-up flash.
 
