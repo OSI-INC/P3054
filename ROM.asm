@@ -696,7 +696,7 @@ ld (mmu_irst),A     ; with the bit three mask.
 
 ; Transmit a temperature measurement. After that, we decrement
 ; the two-byte temperature period counter. When it reaches zero,
-; update the temperature measurement and reset the counter.
+; we update the temperature measurement and reset the counter.
 
 int_xmit_temp:
 ld A,(temp_xpd)
@@ -733,8 +733,8 @@ ld (temp_mtl),A
 call tmp_single
 int_xmit_temp_done:
 
-; Transmit an accelerometer measurement. The byte
-; ordering on the accelerometer is little-endian.
+; Transmit an accelerometer measurement. The byte ordering
+; on the accelerometer is little-endian.
 
 int_xmit_acc:
 ld A,(acc_xpd)
@@ -819,26 +819,35 @@ ld A,tx_delay
 dly A
 int_xmit_nvm_done:
 
-jp int_xmit_done
+; Sample and transmit X1 input. We sample all enabled inputs
+; on every interrupt, and transmit an accumulated sample
+; every transmit sample period.
+
+int_xmit_x1:
+
+; If the transmit period is zero, the channel is disabled.
+
+ld A,(x1_xpd)
+add A,0
+jp z,int_xmit_x1_done
 
 ; Construct the sample address out of the input number and the
 ; index.
 
-int_xmit_x1:
 ld A,(x1_idx)
 or A,0x00
 
 ; Select a location in sample mory and initiate an ADC read. 
 ; The sample address selects which ADC will be read out and
 ; directs the fourteen-bit sample the ADC produces to the 
-; correct location in the sample memory. We don't need to
-; wait for the readout to complete because we have enough stuff 
-; to do before we change the sample address again. The readout 
-; and storage continues in the background.
+; correct location in the sample memory. After calling the
+; sampling routine, we wait for it to complete.
 
 ld (mmu_saddr),A
 ld A,sm_read
 ld (mmu_smcr),A
+ld A,adc_rdly
+dly A
 
 ; Decrement the sample index. If zero or greater, we are not ready 
 ; to transmit.
@@ -846,7 +855,7 @@ ld (mmu_smcr),A
 ld A,(x1_idx)
 dec A
 ld (x1_idx),A
-jp p,int_xmit_done
+jp p,int_xmit_x1_done
 
 ; The sample index has reached zero, so we have finished storing 
 ; samples. Reset the sample index to the transmit period minus one. 
@@ -886,20 +895,20 @@ pop E
 ; stored it earlier, into A, and loading it into the sample 
 ; address register.
 
-int_xmit_acc_loop:
+int_xmit_x1a_loop:
   push B
   pop A
   ld (IY),A
   push E
   pop D
   ld A,sm_add
-  int_xmit_mult_loop:
+  int_xmit_x1m_loop:
     ld (IX),A
     dec D
-  jp nz,int_xmit_mult_loop
+  jp nz,int_xmit_x1m_loop
   inc B
   dec C
-jp nz,int_xmit_acc_loop
+jp nz,int_xmit_x1a_loop
 
 ; The accumulator now contains our transmit sample, so load 
 ; bits 17 downto 10 in the transmit hi byte and bits 9
@@ -918,6 +927,12 @@ ld A,tx_txi
 ld (mmu_xcr),A
 ld A,tx_delay 
 dly A
+
+; Done with X1 sampling and transmission.
+
+int_xmit_x1_done:
+
+; Done with transmit interrupt.
 
 int_xmit_done:
 
@@ -1038,7 +1053,6 @@ pop A
 pop F
 
 ret
-
 
 ; ------------------------------------------------------------
 ; Transmit an acknowledgement. We put the auxiliary type in
