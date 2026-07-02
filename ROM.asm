@@ -16,7 +16,7 @@
 const version         1 ; The firmwarwe version.
 const id_hi        0xAA ; 0-255, no restrictions
 const id_lo        0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
-const f_low          14 ; Radio frequency calibration.
+const rf_low         14 ; Radio frequency calibration.
 
 ; CPU Address Map Boundary Constants. The 256 bytes are the 
 ; control registers, which are complimented by a RAM shadow
@@ -102,6 +102,8 @@ const x4_xch     0x0340
 const x4_xpd     0x0341 
 const x4_idx     0x0342 
 const x4_mult    0x0343 
+
+const dc_in      0x034F
 
 ; Configuration of the TMP117 temperature sensor. The
 ; period is in multiples of 250 ms. We have a two-byte
@@ -770,10 +772,11 @@ ld A,tx_delay
 dly A
 int_xmit_acc_done:
 
-; The NVM transmission. We transmit bytes read consecutively from
-; the non-volatile memory. We put the byte value in the top eight
-; transmit sample bits. We put the bottom eight bits of the 
-; NVM address in the bottom eight transmit sample bits.
+; Transmit a byte read from the non-volatile memory (NVM). 
+; We transmit bytes read consecutively. We put the byte 
+; value in the top eight transmit sample bits. We put the 
+; bottom eight bits of the NVM address in the bottom eight 
+; transmit sample bits.
 
 int_xmit_nvm:
 ld A,(nvm_xpd)
@@ -818,12 +821,6 @@ int_xmit_nvm_done:
 
 jp int_xmit_done
 
-; Read a sample from an ADC and transmit. We apply AC coupling for
-; channel numbers for which the lower nibble is 1-4 and DC coupling
-; for lower nibble 5-8. We read ADCs 1-4 for channels 1-4 and again
-; ADCs 1-4 for channels 5-8.
-
-int_xmit_adc:
 
 ; Compose the sample address out of the channel number and the
 ; index. Leaving the address of the first sample (index zero) in
@@ -1567,26 +1564,21 @@ seti
 ld HL,stack_bot
 ld SP,HL
 
-; Turn on the lamp and wait. This is the first start-up flash.
+; Turn on the lamp and wait. This is the start-up flash.
 
 ld A,0x01
 ld (mmu_led),A
 ld A,lon_ms
 call delay_ms
 
-; Turn off the lamp. This is the end of the first start-up
-; flash.
+; Move into boost to speed up initialization.
 
-ld A,0x00
-ld (mmu_led),A
-ld A,loff_ms
-call delay_ms
+ld A,0x03 
+ld (mmu_ccr),A 
 
 ; Configure control space registers.
 
 ld A,0             ; Prepare zeros to write.
-ld (mmu_led),A     ; Turn off Lamp.
-ld (mmu_acfg),A    ; Select AC coupling.
 ld (mmu_msr),A     ; Turn off impedance measurement.
 ld (mmu_dfr),A     ; Clear diagnostic flags to zero.
 ld (mmu_i3p),A     ; Disable interrupt timer three.
@@ -1594,10 +1586,10 @@ ld (mmu_i4p),A     ; Disable interrupt timer four.
 ld (mmu_imsk),A    ; Mask all interrupts.
 ld A,0xFF          ; Prepare ones to write.
 ld (mmu_irst),A    ; Reset all interrupts.
-ld A,f_low         ; Write the radio frequency
+ld A,rf_low        ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
 
-; Configure telemetry protocol.
+; Configure analog inputs.
 
 ld A,0
 ld (x1_xch),A   
@@ -1616,6 +1608,14 @@ ld (x1_mult),A
 ld (x2_mult),A
 ld (x3_mult),A
 ld (x4_mult),A
+ld A,0x00
+ld (dc_in),A
+ld (mmu_acfg),A
+call adc_calib
+
+; Configure the TMP117 temperature sensor and its telemetry
+; channel.
+
 ld A,9
 ld (temp_xch),A
 ld A,sps_32
@@ -1629,6 +1629,11 @@ ld (temp_mpd),A
 ld (temp_mth),A
 ld A,0
 ld (temp_mtl),A
+call tmp_single
+
+; Configure the BMA423 accelerometer and its telemetry
+; channel.
+
 ld A,14
 ld (acc_xch),A
 ld A,sps_128
@@ -1640,6 +1645,10 @@ ld A,bma_100hz
 ld (bma_rate),A
 ld A,bma_16g
 ld (bma_range),A
+call bma_config
+
+; Configure the non-volatile memory telemetry channel.
+
 ld A,13
 ld (nvm_xch),A
 ld A,sps_1024
@@ -1649,48 +1658,12 @@ ld A,0
 ld (nvm_xah),A
 ld (nvm_xal),A
 
-; Turn on the lamp. This is the start of the second start-up flash.
-
-ld A,0x01
-ld (mmu_led),A
-ld A,lon_ms
-call delay_ms
-
-; Configure the accelerometer (BMA423) and thermometer (TMP117). 
-
-call bma_config
-call tmp_single
-
-; Turn off the lamp. This is the end of the second start-up
-; flash.
+; Turn off the lamp and move out of boost. This is the end of the start-up flash.
 
 ld A,0x00
 ld (mmu_led),A
-ld A,loff_ms
-call delay_ms
-
-; Put the CPU into boost mode and call the ADC calibration routine.
-; Afterwards, move out of boost. We have to perform this calibration
-; with FCK running and we assume CK = TCK when waiting for the
-; conversion to complete.
-
-ld A,0x03 
-ld (mmu_ccr),A 
-call adc_calib
 ld A,0x00
 ld (mmu_ccr),A 
-
-; Turn on the lamp. This is the start of the third start-up flash.
-
-ld A,0x01
-ld (mmu_led),A
-ld A,lon_ms
-call delay_ms
-
-; Turn off the lamp. This is the end of the third start-up flash.
-
-ld A,0x00
-ld (mmu_led),A
 
 ; Enable interrupts.
 
