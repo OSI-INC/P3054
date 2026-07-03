@@ -17,8 +17,8 @@ architecture test of tb is
         port (Clock: in std_logic; ClockEn: in std_logic; 
         Reset: in std_logic; WE: in std_logic; 
         Address : in std_logic_vector(7 downto 0); 
-        Data : in std_logic_vector(17 downto 0); 
-        Q : out std_logic_vector(17 downto 0)
+        Data : in std_logic_vector(13 downto 0); 
+        Q : out std_logic_vector(13 downto 0)
     );
     end component;
 
@@ -27,8 +27,8 @@ architecture test of tb is
     signal Reset: std_logic := '0';
     signal WE: std_logic := '0';
     signal Address : std_logic_vector(7 downto 0) := (others => '0');
-    signal Data : std_logic_vector(17 downto 0) := (others => '0');
-    signal Q : std_logic_vector(17 downto 0);
+    signal Data : std_logic_vector(13 downto 0) := (others => '0');
+    signal Q : std_logic_vector(13 downto 0);
 begin
     u1 : SMRAM
         port map (Clock => Clock, ClockEn => ClockEn, Reset => Reset, WE => WE, 
