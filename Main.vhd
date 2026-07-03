@@ -59,12 +59,22 @@
 -- of our last EBR block, and share a single accumulator to calculate the transmit
 -- sample value at transmit time. Size drops from 1250 to 1150 LUTs.
 
--- [27-JUN-26] Replace TXA, which we never use, with MCK in the status register.
+-- V1.11 [27-JUN-26] Replace TXA, which we never use, with MCK in the status register.
 -- Now we can use MCK as a millisecond timer that works in both boost and slow
 -- modes. Expand MMU comments. In software, insist that NVM writes be on page
 -- boundaries.
 
--- [03-JUL-26] Add shifting back into the Sample Controller.
+-- V1.12 [03-JUL-26] Add shifting back into the Sample Controller. All sensors and
+-- converters can be configured in software. Readout and writing to NVM working.
+-- Only problem is 30 uA overhead of a 1024 Hz interrupt.
+
+-- V1.13 [03-JUL-26] Reduce Sample Memory to four locations 18 bits wide. Route
+-- output of Sample Memory to one input of the Sample Accumulator. The other 
+-- input comes from the ADC Controller. Upon assertion of ADCRD, the ADC Controller
+-- reads a fourteen-bit sample from the ADC selected by the two-bit Sample Address,
+-- shifts it in accordance with the Accumulation Shift bits, adds it to the 
+-- output of the Sample Memory, and loads the sum back into the same location in
+-- sample memory. Eliminate direct readout of the ADC samples.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -144,10 +154,8 @@ entity main is
 	constant mmu_i2cMR : integer := 16#18#; -- i2C Most Recent Eight Bits (Read)
 	constant mmu_smcr  : integer := 16#19#; -- Sample Control (Write)
 	constant mmu_saddr : integer := 16#1A#; -- Sample Address (Write/Readback)
-	constant mmu_adcdh : integer := 16#1B#; -- ADC Data HI Byte (Read)
-	constant mmu_adcdl : integer := 16#1C#; -- ADC Data LO Byte (Read)
-	constant mmu_accdh : integer := 16#1D#; -- Accumulator Data HI Byte (Read)
-	constant mmu_accdl : integer := 16#1E#; -- Accumulator Data LO Byte (Read)
+	constant mmu_smemh : integer := 16#1D#; -- Sample HI Byte (Read)
+	constant mmu_smeml : integer := 16#1E#; -- Sample LO Byte (Read)
 end;
 
 architecture behavior of main is
@@ -183,20 +191,19 @@ architecture behavior of main is
 	signal tx_channel : integer range 0 to 255 := tx_channel_default;
 	signal frequency_low : integer range 0 to 31 := default_frequency_low;
 		
--- Sensor Controller. The syn_keep and nomerge reduce code size slightly.
+-- Sample Controller. The syn_keep and nomerge reduce code size slightly.
 	signal ADCCAL, -- Calibrate the Selected ADC
 		ADCRD, -- Initiate ADC Read
 		ADCBSY -- ADC Busy
 		: boolean := false;
-	attribute syn_keep of ADCRD, ADCBSY : signal is true;
-	attribute nomerge of ADCRD, ADCBSY : signal is "";  
-	signal adc_data, sm_data : std_logic_vector(17 downto 0);
-	signal acc_data : std_logic_vector(17 downto 0);
-	signal sm_addr : std_logic_vector(7 downto 0);
-	signal ACCADD, ACCRST, SMWR : std_logic;
+	signal SMWR : std_logic;
+	attribute syn_keep of ADCRD, ADCBSY, SMWR : signal is true;
+	attribute nomerge of ADCRD, ADCBSY, SMWR : signal is "";  
+	signal adc_data, smem_data, acc_data : std_logic_vector(17 downto 0);
+	signal smem_addr : std_logic_vector(1 downto 0);
 	signal acc_shift : std_logic_vector(2 downto 0);
 
--- Sensor Readout
+-- I2C Bus Controller
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
 
 -- Clock Control. The syn_keep and nomerge reduce code size slightly.
@@ -448,24 +455,11 @@ begin
 						-- recently received from the I2C interface.
 						when mmu_i2cMR => cpu_data_in <= i2c_in;
 						
-						-- The two locations from which the CPU can read the most 
-						-- recently obtained ADC sample prior to the sample being
-						-- stored in the sample accumulator. We do not use this
-						-- portal in normal operation, but it is useful for debugging
-						-- and increases our code size only by 8 LUTs. The ADCs
-						-- produce fourteen-bit samples. We shift them left two 
-						-- places and fill the bottom two bits with zeros.
-						when mmu_adcdh => cpu_data_in <= adc_data(13 downto 6);
-						when mmu_adcdl => 
-							cpu_data_in(7 downto 2) <= adc_data(5 downto 0);
-							cpu_data_in(1 downto 0) <= (others => '0');
-						
-						-- The two locations that provide the output of the ADC 
-						-- sample accumulator. We shift the eighteen-bit accumulator
-						-- output two places to the right to make our sixteen-bit
-						-- sample, discarding the two least significant bits.
-						when mmu_accdh => cpu_data_in <= acc_data(17 downto 10);							
-						when mmu_accdl => cpu_data_in <= acc_data(9 downto 2);
+						-- The two locations that provide the output of the sample 
+						-- memory, which holds accumulated samples. We read the
+						-- top sixteen bits of its eighteen-bit output.
+						when mmu_smemh => cpu_data_in <= smem_data(17 downto 10);							
+						when mmu_smeml => cpu_data_in <= smem_data(9 downto 2);
 						
 						-- Whenever we read any other location, we get the value 
 						-- previously written to the shadow RAM.
@@ -514,9 +508,7 @@ begin
 			DC <= '0';
 			ADCRD <= false;
 			ADCCAL <= false;
-			ACCRST <= '1';
-			ACCADD <= '0';
-			sm_addr <= (others => '0');
+			smem_addr <= (others => '0');
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
 		-- and transmit activity. Some signals we assert only for one CK period, and 
@@ -526,8 +518,6 @@ begin
 			SWRST <= false;
 			TXI <= false;
 			ADCRD <= false;
-			ACCRST <= '0';
-			ACCADD <= '0';
 			int_rst <= (others => '0');
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
@@ -648,15 +638,13 @@ begin
 						-- ADC sample accumulator. The ADCRD strobe initiates
 						-- an SDI serial interface read. The ADCCAL flag 
 						-- turns any serial read into a self-calibration of the
-						-- selected ADC, the ADC being selected by sm_addr. The
+						-- selected ADC, the ADC being selected by smem_addr. The
 						-- ACCADD strobe causes the output of the sample memory
 						-- to be added to the accumulator. The ACCRST flag clears
 						-- the accumulator to zero.
 						when mmu_smcr =>
 							ADCRD  <= (cpu_data_out(0) = '1');
 							ADCCAL <= (cpu_data_out(1) = '1');
-							ACCADD <= cpu_data_out(2);
-							ACCRST <= cpu_data_out(3);
 							acc_shift <= cpu_data_out(6 downto 4);
 						
 						-- The sample memory address, which is applied to
@@ -670,7 +658,7 @@ begin
 						-- sample memory and add them together in the sample
 						-- accumulator.
 						when mmu_saddr =>
-							sm_addr <= cpu_data_out;
+							smem_addr(1 downto 0) <= cpu_data_out(1 downto 0);
 							
 						-- For all other addresses, we have not bits to set.
 						-- Note that the shadow RAM is recording all writes
@@ -895,23 +883,19 @@ begin
 		ClockEn => '1',
         Reset => '0',
 		WE => SMWR,
-		Address => sm_addr, 
-		Data => adc_data,
-		Q => sm_data);
+		Address => smem_addr, 
+		Data => acc_data,
+		Q => smem_data);
 		
 -- The Sample Accumulator adds fourteen-bit samples from the Sample 
 -- Memory together so as to produce an eighteen-bit value from which
 -- we will read the top sixteen bits as our sample for transmission.
--- The accumulator runs on the rising edge of CK.
 	Sample_Accumulator : entity SMADD port map (
-		DataA => sm_data,
-		DataB => acc_data,
-		Clock => CK,
-		Reset => ACCRST,
-		ClockEn => ACCADD,
+		DataA => adc_data,
+		DataB => smem_data,
 		Result => acc_data);
 
--- The ADC Controller starts reading one of the fourteen-bit ADCs when 
+-- ADC Controller starts reading one of the fourteen-bit ADCs when 
 -- it detects ADC Read (ADCRD). The CPU can either wait for sixteen TCK
 -- periods (4.2 us) or poll the ADCBSY bit in the status register until
 -- it clears. If ADCRD is accompanied by ADCCAL, the ADC Controller 
@@ -920,7 +904,7 @@ begin
 -- power-up. The controller shifts fourteen-bit samples into the adc_data
 -- register and then stores them in the sample memory. The ADC it selects
 -- for readout is the one specified by the top two bits of the sample 
--- address (sm_addr).
+-- address.
 	ADC_Controller : process (RESET, FCK) is
 		variable state, next_state : integer range 0 to 63 := 0;
 		constant calib_end : integer := 50;
@@ -984,7 +968,7 @@ begin
 				end if;
 			end if;
 			
-			ADCBSY <= (state > 0);
+			ADCBSY <= (state /= 0);
 			SMWR <= to_std_logic((state = read_end) and (not ADCCAL));
 
 			state := next_state;
@@ -992,10 +976,10 @@ begin
 		
 		-- The ADC we read out or calibrate is selected by the top two bits 
 		-- of the sample address.
-		NADC1 <= to_std_logic(not (ADCBSY and (sm_addr(7 downto 6) = "00")));
-		NADC2 <= to_std_logic(not (ADCBSY and (sm_addr(7 downto 6) = "01")));
-		NADC3 <= to_std_logic(not (ADCBSY and (sm_addr(7 downto 6) = "10")));
-		NADC4 <= to_std_logic(not (ADCBSY and (sm_addr(7 downto 6) = "11")));
+		NADC1 <= to_std_logic(not (ADCBSY and (smem_addr = "00")));
+		NADC2 <= to_std_logic(not (ADCBSY and (smem_addr = "01")));
+		NADC3 <= to_std_logic(not (ADCBSY and (smem_addr = "10")));
+		NADC4 <= to_std_logic(not (ADCBSY and (smem_addr = "11")));
 	end process;
 
 -- The Message Transmitter responds to Transmit Initiate (TXI) by turning on the 

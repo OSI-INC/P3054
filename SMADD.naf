@@ -34,9 +34,6 @@ DataB[3]  i
 DataB[2]  i
 DataB[1]  i
 DataB[0]  i
-Clock  i
-Reset  i
-ClockEn  i
 Result[17]  o
 Result[16]  o
 Result[15]  o

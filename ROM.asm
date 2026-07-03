@@ -60,10 +60,8 @@ const mmu_i2cZ1  0x0017 ; i2c SDA=Z SCL=1 (Write/Readback)
 const mmu_i2cMR  0x0018 ; i2c Most Recent Eight Bits (Read)
 const mmu_smcr   0x0019 ; Sample Control Register (Write)
 const mmu_saddr  0x001A ; Sample Address Register (Write/Readback)
-const mmu_adcdh  0x001B ; ADC Data HI Byte (Read)
-const mmu_adcdl  0x001C ; ADC Data LO Byte (Read)
-const mmu_accdh  0x001D ; Accumulator HI Byte (Read)
-const mmu_accdl  0x001E ; Accumulator LO Byte (Read)
+const mmu_smemh  0x001D ; ADC Data HI Byte (Read)
+const mmu_smeml  0x001E ; ADC Data LO Byte (Read)
 
 ; Firmware and hardware constants.
 
@@ -92,27 +90,23 @@ const key_lb     0x0301
 
 const x1_xpd     0x0310 ; Transmit Period
 const x1_idx     0x0311 ; Sample Index
-const x1_sba     0x0312 ; Sample Base Address
-const x1_scc     0x0313 ; Sample Control Command
-const x1_xch     0x0314 ; Transmit Channel Number
+const x1_scc     0x0312 ; Sample Control Command
+const x1_xch     0x0313 ; Transmit Channel Number
 
 const x2_xpd     0x0320 ; Transmit Period
 const x2_idx     0x0321 ; Sample Index
-const x2_sba     0x0322 ; Sample Base Address
-const x2_scc     0x0323 ; Sample Control Command
-const x2_xch     0x0324 ; Transmit Channel Number
+const x2_scc     0x0322 ; Sample Control Command
+const x2_xch     0x0323 ; Transmit Channel Number
 
 const x3_xpd     0x0330 ; Transmit Period
 const x3_idx     0x0331 ; Sample Index
-const x3_sba     0x0332 ; Sample Base Address
-const x3_scc     0x0333 ; Sample Control Command
-const x3_xch     0x0334 ; Transmit Channel Number
+const x3_scc     0x0332 ; Sample Control Command
+const x3_xch     0x0333 ; Transmit Channel Number
 
 const x4_xpd     0x0340 ; Transmit Period
 const x4_idx     0x0341 ; Sample Index
-const x4_sba     0x0342 ; Sample Base Address
-const x4_scc     0x0343 ; Sample Control Command
-const x4_xch     0x0344 ; Transmit Channel Number
+const x4_scc     0x0342 ; Sample Control Command
+const x4_xch     0x0343 ; Transmit Channel Number
 
 const dc_in      0x034F ; DC-Coupled Inputs
 
@@ -835,27 +829,28 @@ ld A,tx_delay
 dly A
 int_xmit_nvm_done:
 
-; Sample and transmit X1-X4 inputs. We sample all enabled inputs
-; on every interrupt. We transmit an accumulated sample every 
-; transmit sample period. We access the X1-X4 control variables
-; using the fact that they are offset from one another by sixteen
-; bytes. We point IX at the variable locations as needed. The
-; control bytes are x1_xch, x1_xpd, x1_idx, x1_shift, and repeat.
+; Sample and transmit X1-X4 input ADCs. We sample all enabled 
+; inputs on every interrupt. We transmit an accumulated sample 
+; every transmit sample period. We access the ADC1-ADC4 control 
+; variables using the fact that they are offset from one another 
+; by sixteen bytes. We point IX at the variable locations as 
+; needed. The control bytes are x1_xpd, x1_idx, x1_scc, and
+; x1_xch, and so on for each of the remaining ADCs.
 
 int_xmit_x:
 
-; The first channel is X1. We store the base address of its
-; control variables in HL. We store a counter in memory.
+; The first ADC is X1. We store the base address of its control 
+; variables in HL. We store the ADC index in memory. This index 
+; will serve both as a counter and a sample selector.
  
 ld HL,x1_xpd
-ld A,num_adcs
+ld A,0
 ld (adc_idx),A
 
-; This loop assumes only that HL contains the address of a
-; block of variables that controls readout and accumulation
-; of one the ADCs and also that the location adc_idx contains
-; a counter that will equal the ADC number, with zero
-; indicating that no ADCs are left to process.
+; This loop assumes HL contains the address of a block of variables 
+; that controls readout and accumulation of one the ADCs and also 
+; that the location adc_idx contains a counter that is zero for
+; the first ADC and increments thereafter.
 
 int_xmit_x_loop:
 
@@ -866,25 +861,17 @@ push H
 push L
 pop IX ; Transmit Period
 
-; If the transmit period is zero, the channel is disabled, so 
-; move to the next channel. 
+; If the transmit period is zero, the ADC is disabled, so 
+; move to the next ADC. 
 
 ld A,(IX)
 add A,0
 jp z,int_xmit_x_next
 
-; We are going to take a sample and store it in the sample
-; memory. We add the current sample index to the channel sample 
-; base address to obtain the address at which our sample will
-; be stored.
+; Set the Sample Address to select this ADC's location in 
+; the sample memory.
 
-inc IX ; Sample Index
-ld A,(IX)
-push A
-pop B
-inc IX ; Sample Base Address
-ld A,(IX)
-add A,B
+ld A,(adc_idx)
 ld (mmu_saddr),A
 
 ; Make sure the ADC is not busy.
@@ -894,68 +881,29 @@ ld A,(mmu_sr)
 and A,sr_adcbsy
 jp nz,int_xmit_x_scw
 
-; Initiate the read, shift, and store by writing this channel's
-; sample control code to the sample control register.
+; Initiate the read, shift, and accumulate by writing this 
+; channel's sample control code to the sample control register.
 
+inc IX ; Sample Index
 inc IX ; Sample Controller Code
 ld A,(IX)
 ld (mmu_smcr),A
 
-; Increment the sample index. If it is still less than the transmit 
-; sample period, we are not ready to transmit.
+; Decrement the sample index. If it is not yet zero, we are 
+; not ready to transmit. Move on to the next ADC.
 
-dec IX ; Sample Base Address
 dec IX ; Sample Index
 ld A,(IX)
-inc A
+dec A
 ld (IX),A
-push A
-pop B
-dec IX ; Transmit Period
-ld A,(IX)
-sub A,B
 jp nz,int_xmit_x_next
 
-; Reset the accumulator.
+; Set the transmit index equal to the transmit period.
 
-ld A,sm_rst
-ld (mmu_smcr),A
-
-; Load the transmit period into B as a counter.
-
+dec IX ; Transmit Period
 ld A,(IX)
-push A
-pop B
-
-; Reset the sample index and load the sample base 
-; address into its register.
-
 inc IX ; Sample Index
-ld A,0
 ld (IX),A
-inc IX ; Sample Base Address
-ld A,(IX)
-ld (mmu_saddr),A
-
-; Add xpd samples to the accumulator.
-
-int_xmit_xa_loop:
-  ld A,sm_add
-  ld (mmu_smcr),A
-  ld A,(mmu_saddr)
-  inc A
-  ld (mmu_saddr),A
-  dec B
-jp nz,int_xmit_xa_loop
-
-; The accumulator now contains our transmit sample, so load 
-; bits 17 downto 10 in the transmit hi byte and bits 9
-; downto 2 into the transmit lo byte.
-
-ld A,(mmu_accdh)
-ld (mmu_xhb),A
-ld A,(mmu_accdl)
-ld (mmu_xlb),A
 
 ; Make sure the transmitter is not busy.
 
@@ -963,6 +911,14 @@ int_xmit_x_txw:
 ld A,(mmu_sr)
 and A,sr_txa
 jp nz,int_xmit_x_txw
+
+; Read the output from the sample memory and transfer to the
+; Sample Transmitter.
+
+ld A,(mmu_smemh)
+ld (mmu_xhb),A
+ld A,(mmu_smeml)
+ld (mmu_xlb),A
 
 ; Set the transmit channel number and transmit the accumulated 
 ; sample.
@@ -978,12 +934,13 @@ ld (mmu_xcr),A
 
 int_xmit_x_next:
 
-; Decrement the ADC index. If it is now zero, we are done
-; with all the ADCs.
+; Increment the ADC index. If it is now equal to the number
+; of ADCs, we are done with all of therm.
 
 ld A,(adc_idx)
-dec A
+inc A
 ld (adc_idx),A
+sub A,num_adcs
 jp z,int_xmit_x_done
 
 ; Prepare for the next ADC. We increment address pointer 
@@ -1454,8 +1411,7 @@ call get_cmd_byte
 
 ld (sack_key),A
 
-; The lamp-off instruction. Turn off 
-; the LED.
+; The lamp-off instruction. Turn off the LED.
 
 check_loff:
 ld A,(ccmdb)
@@ -1682,36 +1638,27 @@ ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
 
 ; Configure analog inputs.
 
-ld A,sps_64
+ld A,sps_256
 ld (x1_xpd),A
 ld (x1_idx),A
 
-ld A,sps_64
+ld A,sps_256
 ld (x2_xpd),A
 ld (x2_idx),A
 
-ld A,sps_64
+ld A,sps_256
 ld (x3_xpd),A
 ld (x3_idx),A
 
-ld A,sps_64
+ld A,sps_256
 ld (x4_xpd),A
 ld (x4_idx),A
 
-ld A,sm_rd0
+ld A,sps_256
 ld (x1_scc),A
 ld (x2_scc),A
 ld (x3_scc),A
 ld (x4_scc),A
-
-ld A,sm_x1
-ld (x1_sba),A
-ld A,sm_x2
-ld (x2_sba),A
-ld A,sm_x3
-ld (x3_sba),A
-ld A,sm_x4
-ld (x4_sba),A
 
 ld A,1
 ld (x1_xch),A  
@@ -1721,7 +1668,6 @@ inc A
 ld (x3_xch),A
 inc A
 ld (x4_xch),A
-
 
 ld A,0x00
 ld (dc_in),A
