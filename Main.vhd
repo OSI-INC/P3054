@@ -120,16 +120,16 @@ entity main is
 	constant mmu_irqb  : integer := 16#00#; -- Interrupt Request Bits (Read)
 	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Write/Readback)
 	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write)
-	constant mmu_dcac  : integer := 16#03#; -- DC or AC Coupling (Write/Readback)
+	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Write/Readback)
 	constant mmu_led   : integer := 16#04#; -- Lamp Switch (Write/Readback)
 	constant mmu_rst   : integer := 16#05#; -- Software Reset (Write)
 	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write/Readback)
 	constant mmu_xlb   : integer := 16#07#; -- Transmit LO Byte (Write/Readback)
 	constant mmu_xch   : integer := 16#08#; -- Transmit Channel Number (Write/Readback)
-	constant mmu_xcr   : integer := 16#09#; -- Transmit Control Register (Write)
+	constant mmu_xcr   : integer := 16#09#; -- Transmit Control (Write)
 	constant mmu_rfc   : integer := 16#0A#; -- Radio Frequency Calibration (Write/Readback)	
-	constant mmu_ccr   : integer := 16#0B#; -- Clock Control Register (Write/Readback)
-	constant mmu_dfr   : integer := 16#0C#; -- Diagnostic Flag Register (Write/Readback)
+	constant mmu_ccr   : integer := 16#0B#; -- Clock Control (Write/Readback)
+	constant mmu_dfr   : integer := 16#0C#; -- Diagnostic Flags (Write/Readback)
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
 	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal (Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
@@ -142,13 +142,12 @@ entity main is
 	constant mmu_i2cZ0 : integer := 16#16#; -- i2c SDA=Z SCL=0 (Write/Readback)
 	constant mmu_i2cZ1 : integer := 16#17#; -- i2c SDA=Z SCL=1 (Write/Readback)
 	constant mmu_i2cMR : integer := 16#18#; -- i2C Most Recent Eight Bits (Read)
-	constant mmu_smcr  : integer := 16#19#; -- Sample Control Register (Write)
-	constant mmu_saddr : integer := 16#1A#; -- Sample Address Register (Write/Readback)
+	constant mmu_smcr  : integer := 16#19#; -- Sample Control (Write)
+	constant mmu_saddr : integer := 16#1A#; -- Sample Address (Write/Readback)
 	constant mmu_adcdh : integer := 16#1B#; -- ADC Data HI Byte (Read)
 	constant mmu_adcdl : integer := 16#1C#; -- ADC Data LO Byte (Read)
 	constant mmu_accdh : integer := 16#1D#; -- Accumulator Data HI Byte (Read)
 	constant mmu_accdl : integer := 16#1E#; -- Accumulator Data LO Byte (Read)
-	constant mmu_msr   : integer := 16#1F#; -- Impedance Measurement Control (Write/Readback)
 end;
 
 architecture behavior of main is
@@ -533,8 +532,18 @@ begin
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
 					case bottom_bits is
-						-- Select between AC and DC coupling for the unipolar inputs.
-						when mmu_dcac => DC <= cpu_data_out(0);
+						-- The Amplifier Configuration register selects between
+						-- AC and DC coupling for the unipolar inputs with bit
+						-- zero. With bit one it activates the impedance 
+						-- measurement switch, which displaces the ground
+						-- potential of unipolar and bipolar inputs so as
+						-- to introduce a step downwards in the unipolar 
+						-- inputs, the size of which depends upon the ratio
+						-- of the electrode impedance to the amplifier input
+						-- impedance.
+						when mmu_acfg => 
+							DC <= cpu_data_out(0);
+							MSR <= cpu_data_out(1);
 						
 						-- The two locations in which the CPU places the sixteen
 						-- telemetry sample bits that will be transmitted after the
@@ -663,14 +672,6 @@ begin
 						when mmu_saddr =>
 							sm_addr <= cpu_data_out;
 							
-						-- The measure impedance flag displaces the ground
-						-- potential of unipolar and bipolar inputs so as
-						-- to introduce a step downwards in the unipolar 
-						-- inputs, the size of which depends upon the ratio
-						-- of the electrode impedance to the amplifier input
-						-- impedance.
-						when mmu_msr => MSR <= cpu_data_out(0);
-						
 						-- For all other addresses, we have not bits to set.
 						-- Note that the shadow RAM is recording all writes
 						-- to these addresses, and will respond to reads for
@@ -984,7 +985,7 @@ begin
 			end if;
 			
 			ADCBSY <= (state > 0);
-			SMWR <= to_std_logic((state = 40) and (not ADCCAL));
+			SMWR <= to_std_logic((state = read_end) and (not ADCCAL));
 
 			state := next_state;
 		end if;
