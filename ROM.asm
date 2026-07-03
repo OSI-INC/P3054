@@ -68,8 +68,7 @@ const mmu_msr    0x001F ; Impedance Measurement Control (Write/Readback)
 
 ; Firmware constants.
 
-const sm_blksz       32 ; Sample Memory Block Size (bytes)
-const sm_blkmsk    0x80 ; Sample Memory Address Mask
+const sm_blksz       64 ; Sample Memory Block Size (bytes)
 
 ; The variable space will be entirely written on start-up by a
 ; a block read from the NVM. Before copying, however, we check
@@ -863,9 +862,8 @@ ld A,(IX)
 add A,0
 jp z,int_xmit_x_next
 
-; We move IX to point to the index. We construct the sample 
-; address out of the input number and the sample block
-; address.  
+; Move IX to point to the index. We add the index to the
+; block address to make the sample address.  
 
 inc IX
 ld A,(IX)
@@ -873,9 +871,9 @@ push A
 pop B
 pop A
 push A
-or A,B
+add A,B
 
-; Select a location in sample mory and initiate an ADC read. 
+; Select a location in sample memory and initiate an ADC read. 
 ; The sample address selects which ADC will be read out and
 ; directs the fourteen-bit sample the ADC produces to the 
 ; correct location in the sample memory. After calling the
@@ -895,16 +893,17 @@ dec A
 ld (IX),A
 jp p,int_xmit_x_next
 
-; Move IX to point to the sample period. The sample index has reached 
-; zero, so we have finished storing samples. Reset the sample index to 
-; the transmit period. Save the transmit period in C for later.
+; Move IX to point to the transmit period. Reset the sample index to 
+; the transmit period minus one. Save the transmit period in C for 
+; later.
 
 dec IX
 ld A,(IX)
-inc IX
-ld (IX),A
 push A
 pop C
+dec A
+inc IX
+ld (IX),A
 
 ; Load the sample multiplier for this channel and store in E.
 
@@ -914,14 +913,12 @@ push A
 pop E
 
 ; Point IX at the accumulator control register. Point IY at the 
-; sample address register, to wich we will write sample addresses
-; that select which fourteen-bit sample in the sample memory will 
-; be used as input to the eighteen-bit accumulator.
+; sample address register, to which we will write sample addresses.
 
 ld IX,mmu_smcr
 ld IY,mmu_saddr
 
-; Reset the accumulator. We are going to add x1_txp samples to 
+; Reset the accumulator. We are going to add txp samples to 
 ; the accumulator so as to produce a sum of the correct 
 ; magnitude. These could be sixteen different samples, sixteen 
 ; copies of a single sample, or some other such combination. 
@@ -932,15 +929,14 @@ ld IY,mmu_saddr
 ld A,sm_rst
 ld (IX),A
 
-; The accumulator loop goes through x1_txp samples in the sample 
-; memory and adds each of them x1_mult times to the accumulator.
-; We begin by moving the first sample address from B, where we
-; stored it earlier, into A, and loading it into the sample 
-; address register.
+; The accumulator loop goes through txp samples in the sample 
+; memory and adds each of them mult times to the accumulator.
+; We begin by popping the sample memory address of the first
+; sample off the stack, where we stored it earlier.
 
 int_xmit_xa_loop:
-  push B
   pop A
+  push A
   ld (IY),A
   push E
   pop D
@@ -962,7 +958,8 @@ ld (mmu_xhb),A
 ld A,(mmu_accdl)
 ld (mmu_xlb),A
 
-; Transmit the x1 sample.
+; Set the transmit channel number and transmit the accumulated 
+; sample.
 
 push H
 push L
@@ -1000,9 +997,8 @@ pop A
 
 add A,sm_blksz
 push A
-and A,sm_blkmsk
 pop A
-jp z,int_xmit_x_loop
+jp nc,int_xmit_x_loop
 
 ; Done with transmit interrupt.
 
@@ -1587,8 +1583,8 @@ jp nz,load_prog    ; read another byte.
 ld IX,scr_bot      ; Preapare to write the
 push E             ; values to the NVM.
 pop A              ; We divide the number of
-srl A              ; bytes by
-srl A              ; sixteen to get the
+srl A              ; bytes by sixteen using
+srl A              ; shift-right logical to get the
 srl A              ; number of sixteen-byte
 srl A              ; pages to be written.
 call nvm_wr        ; Call the write routine and
@@ -1720,7 +1716,7 @@ call adc_calib
 
 ld A,9
 ld (temp_xch),A
-ld A,sps_32
+ld A,0
 ld (temp_xpd),A
 ld (temp_idx),A
 ld A,0
@@ -1738,14 +1734,14 @@ call tmp_single
 
 ld A,14
 ld (acc_xch),A
-ld A,sps_128
+ld A,0
 ld (acc_xpd),A
 ld (acc_idx),A
-ld A,bma_enable
+ld A,bma_disable
 ld (bma_state),A
-ld A,bma_100hz
+ld A,bma_1hz
 ld (bma_rate),A
-ld A,bma_16g
+ld A,bma_2g
 ld (bma_range),A
 call bma_config
 
@@ -1753,7 +1749,7 @@ call bma_config
 
 ld A,13
 ld (nvm_xch),A
-ld A,sps_1024
+ld A,0
 ld (nvm_xpd),A
 ld (nvm_idx),A
 ld A,0

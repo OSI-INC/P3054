@@ -117,7 +117,7 @@ entity main is
 	constant mmu_irqb  : integer := 16#00#; -- Interrupt Request Bits (Read)
 	constant mmu_imsk  : integer := 16#01#; -- Interrupt Mask Bits (Write/Readback)
 	constant mmu_irst  : integer := 16#02#; -- Interrupt Reset Bits (Write)
-	constant mmu_acfg  : integer := 16#03#; -- Amplifier Configuration (Write/Readback)
+	constant mmu_dcac  : integer := 16#03#; -- DC or AC Coupling (Write/Readback)
 	constant mmu_led   : integer := 16#04#; -- Lamp Switch (Write/Readback)
 	constant mmu_rst   : integer := 16#05#; -- Software Reset (Write)
 	constant mmu_xhb   : integer := 16#06#; -- Transmit HI Byte (Write/Readback)
@@ -188,10 +188,11 @@ architecture behavior of main is
 		: boolean := false;
 	attribute syn_keep of ADCRD, ADCBSY : signal is true;
 	attribute nomerge of ADCRD, ADCBSY : signal is "";  
-	signal adc_data, sm_data : std_logic_vector(13 downto 0);
+	signal adc_data, sm_data : std_logic_vector(17 downto 0);
 	signal acc_data : std_logic_vector(17 downto 0);
 	signal sm_addr : std_logic_vector(7 downto 0);
 	signal ACCADD, ACCRST, SMWR : std_logic;
+	signal acc_shift : std_logic_vector(2 downto 0);
 
 -- Sensor Readout
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
@@ -460,8 +461,8 @@ begin
 						-- sample accumulator. We shift the eighteen-bit accumulator
 						-- output two places to the right to make our sixteen-bit
 						-- sample, discarding the two least significant bits.
-						when mmu_accdh  => cpu_data_in <= acc_data(17 downto 10);
-						when mmu_accdl =>  cpu_data_in <= acc_data(9 downto 2);
+						when mmu_accdh => cpu_data_in <= acc_data(17 downto 10);
+						when mmu_accdl => cpu_data_in <= acc_data(9 downto 2);
 						
 						-- Whenever we read any other location, we get the value 
 						-- previously written to the shadow RAM.
@@ -529,7 +530,7 @@ begin
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
 					case bottom_bits is
 						-- Select between AC and DC coupling for the unipolar inputs.
-						when mmu_acfg => DC <= cpu_data_out(0);
+						when mmu_dcac => DC <= cpu_data_out(0);
 						
 						-- The two locations in which the CPU places the sixteen
 						-- telemetry sample bits that will be transmitted after the
@@ -643,6 +644,7 @@ begin
 							ADCCAL <= (cpu_data_out(1) = '1');
 							ACCADD <= cpu_data_out(2);
 							ACCRST <= cpu_data_out(3);
+							acc_shift <= cpu_data_out(6 downto 4);
 						
 						-- The sample memory address, which is applied to
 						-- the sample memory to determine where samples are
@@ -895,8 +897,7 @@ begin
 -- we will read the top sixteen bits as our sample for transmission.
 -- The accumulator runs on the rising edge of CK.
 	Sample_Accumulator : entity SMADD port map (
-		DataA(17 downto 14) => "0000",
-		DataA(13 downto 0) => sm_data,
+		DataA(17 downto 0) => sm_data,
 		DataB => acc_data,
 		Clock => CK,
 		Reset => ACCRST,
@@ -958,11 +959,27 @@ begin
 					adc_data <= (others => '0');
 				end if;
 				if (state >= 4) and (state <= 30) and ((state mod 2) = 0) then
-					adc_data(13 downto 1) <= adc_data(12 downto 0);
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
 					adc_data(0) <= SDO;
 				end if;
+				if (state = 31) and (unsigned(acc_shift) >= 1) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
+					adc_data(0) <= '0';
+				end if;
+				if (state = 32) and (unsigned(acc_shift) >= 2) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
+					adc_data(0) <= '0';
+				end if;
+				if (state = 33) and (unsigned(acc_shift) >= 3) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
+					adc_data(0) <= '0';
+				end if;
+				if (state = 34) and (unsigned(acc_shift) >= 4) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
+					adc_data(0) <= '0';
+				end if;
 			end if;
-						SMWR <= to_std_logic((state = 32) and (not ADCCAL));
+						SMWR <= to_std_logic((state = 35) and (not ADCCAL));
 
 			state := next_state;
 		end if;
