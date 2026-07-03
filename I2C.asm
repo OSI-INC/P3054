@@ -196,7 +196,8 @@ inc IX
 dec C
 jp nz,i2c_wr_loop
 
-; I2C: Stop code (SP).
+; I2C: Stop code (SP). Make sure we leave SDA in the 
+; high-impedance state.
 
 ld (mmu_i2c00),A  ; 3
 ld (mmu_i2c01),A  ; 3
@@ -481,6 +482,7 @@ ld (mmu_i2cZ1),A  ; 3
 ld (mmu_i2cZ0),A  ; 3
 
 ; Now we are done, so release the bus with a stop code (SP).
+; Make sure we leave SDA in the high-impedance state.
 
 ld (mmu_i2c00),A  ; 3
 ld (mmu_i2c01),A  ; 3

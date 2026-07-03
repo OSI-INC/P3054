@@ -216,6 +216,7 @@ const adc_rdly       16 ; Clock cycles for ADC readout
 const adc_cdly       22 ; Clock cycles for ADC self-calibration
 const lon_ms         20 ; Lamp on time in milliseconds
 const loff_ms       200 ; Lamp off time in milliseconds
+const sps_0           0 ; Disable a channel.
 const sps_32         32 ; 1/32 s in interrupt periods
 const sps_64         16 ; 1/64 s in interrupt periods
 const sps_128         8 ; 1/128 s in interrupt periods
@@ -698,9 +699,7 @@ push L
 push IX
 push IY
 
-; Handle the transmit interrupt, if it exists. We transmit a synchronizing signal.
-; We won't wait for the transmission to complete because we are certain to follow 
-; our transmission with at least one RCK period when we move out of boost. 
+; Handle the transmit interrupt.
 
 int_xmit:
 
@@ -1679,29 +1678,27 @@ ld A,0xFF          ; Prepare ones to write.
 ld (mmu_irst),A    ; Reset all interrupts.
 ld A,rf_low        ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
+ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
 
 ; Configure analog inputs.
 
-ld A,1
-ld (x1_xch),A  
-inc A 
-ld (x2_xch),A
-inc A
-ld (x3_xch),A
-inc A
-ld (x4_xch),A
-
-ld A,sps_256
+ld A,sps_64
 ld (x1_xpd),A
-ld (x2_xpd),A
-ld (x3_xpd),A
-ld (x4_xpd),A
 ld (x1_idx),A
+
+ld A,sps_64
+ld (x2_xpd),A
 ld (x2_idx),A
+
+ld A,sps_64
+ld (x3_xpd),A
 ld (x3_idx),A
+
+ld A,sps_64
+ld (x4_xpd),A
 ld (x4_idx),A
 
-ld A,sm_rd2
+ld A,sm_rd0
 ld (x1_scc),A
 ld (x2_scc),A
 ld (x3_scc),A
@@ -1715,6 +1712,16 @@ ld A,sm_x3
 ld (x3_sba),A
 ld A,sm_x4
 ld (x4_sba),A
+
+ld A,1
+ld (x1_xch),A  
+inc A 
+ld (x2_xch),A
+inc A
+ld (x3_xch),A
+inc A
+ld (x4_xch),A
+
 
 ld A,0x00
 ld (dc_in),A
