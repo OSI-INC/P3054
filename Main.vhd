@@ -39,7 +39,8 @@
 -- zero to four left shifts at end of readout. 
 
 -- V1.8 [09-JUN-26] Add four eighteen-bit accumulators for box filters. Code is 14 
--- LUTs and 12 SLICEs too large. Eliminate the X3 and X4 box filters and allow -- direct access to adc_data. Code fits. We have accumulators for X1 and X2.
+-- LUTs and 12 SLICEs too large. Eliminate the X3 and X4 box filters and allow 
+-- direct access to adc_data. Code fits. We have accumulators for X1 and X2.
 -- Eliminate CRC check of command. We plan to implement later in software. Convert 
 -- the command initiate and terminate processes to using the millisecond clock with
 -- synchronous reset, which reduces the number of registers used for counting. 
@@ -62,6 +63,8 @@
 -- Now we can use MCK as a millisecond timer that works in both boost and slow
 -- modes. Expand MMU comments. In software, insist that NVM writes be on page
 -- boundaries.
+
+-- [03-JUL-26] Add shifting back into the Sample Controller.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -309,7 +312,8 @@ begin
 			else state := end_state; end if;
 		end if;
 	end process;	
--- The Fast Clock process produces FCK when the microprocessor asserts Enable
+
+-- The Fast Clock process produces FCK when the microprocessor asserts Enable
 -- Fast Clock (ENFCK). The fast clock must be running during sample transmission
 -- or else the transmission will fail. The fast clock should be running during
 -- ADC readout as well, or else it will proceed too slowly. All I2C accesses are
@@ -791,7 +795,8 @@ begin
 			((RCK = '1') and (state = 0)) 
 			or ((TCK = '1') and (state = 3)));
 	end process;
--- The Interrupt Controller provides the interrupt signal to the CPU in response to
+
+-- The Interrupt Controller provides the interrupt signal to the CPU in response to
 -- timer events. By default, at power-up, all interrupts are masked. We can set the
 -- period of each timer by writing to locations in the CPU control space. If we want
 -- the counter to have period N ticks, we write value N-1 to the period registers.
@@ -884,7 +889,8 @@ begin
 		-- We generate an interrupt if any one interrupt bit is 
 		-- set and unmasked.
 	end process;
--- The Interrupt Generator takes the interrupt bits and the interrupt mask
+
+-- The Interrupt Generator takes the interrupt bits and the interrupt mask
 -- and combines them to create an interrupt reques for the CPU, which we 
 -- synchronize with CK.
 	Interrupt_Generator : process (CK) is
@@ -986,7 +992,8 @@ begin
 					adc_data(0) <= SDO;
 				end if;
 			end if;
-						ADCBSY <= (state > 0);
+			
+			ADCBSY <= (state > 0);
 			SMWR <= to_std_logic((state = 32) and (not ADCCAL));
 
 			state := next_state;
