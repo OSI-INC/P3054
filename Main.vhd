@@ -191,7 +191,7 @@ architecture behavior of main is
 		: boolean := false;
 	attribute syn_keep of ADCRD, ADCBSY : signal is true;
 	attribute nomerge of ADCRD, ADCBSY : signal is "";  
-	signal adc_data, sm_data : std_logic_vector(13 downto 0);
+	signal adc_data, sm_data : std_logic_vector(17 downto 0);
 	signal acc_data : std_logic_vector(17 downto 0);
 	signal sm_addr : std_logic_vector(7 downto 0);
 	signal ACCADD, ACCRST, SMWR : std_logic;
@@ -465,25 +465,8 @@ begin
 						-- sample accumulator. We shift the eighteen-bit accumulator
 						-- output two places to the right to make our sixteen-bit
 						-- sample, discarding the two least significant bits.
-						when mmu_accdh => 
-							case acc_shift is
-								when "100" => cpu_data_in <= acc_data(13 downto 6);
-								when "011" => cpu_data_in <= acc_data(14 downto 7);
-								when "010" => cpu_data_in <= acc_data(15 downto 8);
-								when "001" => cpu_data_in <= acc_data(16 downto 9);
-								when others => cpu_data_in <= acc_data(17 downto 10);
-							end case;
-							
-						when mmu_accdl => 
-							case acc_shift is 
-								when "100" => 
-									cpu_data_in(7 downto 2) <= acc_data(5 downto 0);
-								when "011" => 
-									cpu_data_in(7 downto 1) <= acc_data(6 downto 0);
-								when "010" => cpu_data_in <= acc_data(7 downto 0);
-								when "001" => cpu_data_in <= acc_data(8 downto 1);
-								when others => cpu_data_in <= acc_data(9 downto 2);
-							end case;
+						when mmu_accdh => cpu_data_in <= acc_data(17 downto 10);							
+						when mmu_accdl => cpu_data_in <= acc_data(9 downto 2);
 						
 						-- Whenever we read any other location, we get the value 
 						-- previously written to the shadow RAM.
@@ -920,8 +903,7 @@ begin
 -- we will read the top sixteen bits as our sample for transmission.
 -- The accumulator runs on the rising edge of CK.
 	Sample_Accumulator : entity SMADD port map (
-		DataA(13 downto 0) => sm_data,
-		DataA(17 downto 14) => "0000",
+		DataA => sm_data,
 		DataB => acc_data,
 		Clock => CK,
 		Reset => ACCRST,
@@ -973,6 +955,7 @@ begin
 				SCK <= to_std_logic(
 					(state = 0) 
 					or ((state < 48) and (state mod 2) = 1));
+				adc_data <= (others => '0');
 			else 
 				if (state > 0) and (state < read_end) then
 					next_state := state + 1;
@@ -988,13 +971,20 @@ begin
 					adc_data <= (others => '0');
 				end if;
 				if (state >= 4) and (state <= 30) and ((state mod 2) = 0) then
-					adc_data(13 downto 1) <= adc_data(12 downto 0);
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
 					adc_data(0) <= SDO;
+				end if;
+				if ((state = 32) and (unsigned(acc_shift) >= 1))
+					or ((state = 34) and (unsigned(acc_shift) >= 2)) 
+					or ((state = 36) and (unsigned(acc_shift) >= 3))
+					or ((state = 38) and (unsigned(acc_shift) >= 4)) then
+					adc_data(17 downto 1) <= adc_data(16 downto 0);
+					adc_data(0) <= '0';
 				end if;
 			end if;
 			
 			ADCBSY <= (state > 0);
-			SMWR <= to_std_logic((state = 32) and (not ADCCAL));
+			SMWR <= to_std_logic((state = 40) and (not ADCCAL));
 
 			state := next_state;
 		end if;
