@@ -306,12 +306,12 @@ const sm_rd2       0x21 ; Read with 2 Shifts
 const sm_rd3       0x31 ; Read with 3 Shifts
 const sm_rd4       0x41 ; Read with 4 Shifts
 const sm_calib     0x03 ; Calibrate an ADC
-const sm_add       0x04 ; Add sample to accumulator
-const sm_rst       0x08 ; Reset the accumulator
-const sm_x1        0x00 ; Base of X1 sample memory
-const sm_x2        0x40 ; Base of X2 sample memory
-const sm_x3        0x80 ; Base of X3 sample memory
-const sm_x4        0xC0 ; Base of X4 sample memory
+const sm_accrst    0x04 ; Reset the Accumulator
+const sm_smwrcpu   0x08 ; Write to Sample Memory
+const sm_x1           0 ; X1 Sample Memory Location
+const sm_x2           1 ; X2 Sample Memory Location
+const sm_x3           2 ; X3 Sample Memory Location
+const sm_x4           3 ; X4 Sample Memory Location
 
 ; Constants: Mathematical.
 
@@ -844,7 +844,7 @@ int_xmit_x:
 ; will serve both as a counter and a sample selector.
  
 ld HL,x1_xpd
-ld A,0
+ld A,sm_x1
 ld (adc_idx),A
 
 ; This loop assumes HL contains the address of a block of variables 
@@ -930,29 +930,40 @@ ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
 
+; Reset the Sample Accumulator so that its output is zero, then
+; store that zero in the sample memory, so we are ready to start
+; accumulating the next sample.
+
+ld A,sm_accrst
+ld (mmu_smcr),A
+ld A,sm_smwrcpu
+ld (mmu_smcr),A
+
 ; Done with this input, time to move on to the next one.
 
 int_xmit_x_next:
 
-; Increment the ADC index. If it is now equal to the number
-; of ADCs, we are done with all of therm.
+; Check thed ADC index. If it is equal to sample memory address
+; of the final ADC, we are done with all of them.
+
+ld A,(adc_idx)
+sub A,sm_x4
+jp z,int_xmit_x_done
+
+; Prepare for the next ADC. We increment the ADC index by one and
+; the control variable address pointer by sixteen.
 
 ld A,(adc_idx)
 inc A
 ld (adc_idx),A
-sub A,num_adcs
-jp z,int_xmit_x_done
-
-; Prepare for the next ADC. We increment address pointer 
-; by sixteen bytes to point to the next record of ADC
-; control variables.
-
 push L
 pop A
 add A,16
 push A
 pop L
 jp int_xmit_x_loop
+
+; Done with ADC readout and transmission.
 
 int_xmit_x_done:
 

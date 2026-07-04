@@ -196,9 +196,13 @@ architecture behavior of main is
 		ADCRD, -- Initiate ADC Read
 		ADCBSY -- ADC Busy
 		: boolean := false;
-	signal SMWR : std_logic;
-	attribute syn_keep of ADCRD, ADCBSY, SMWR : signal is true;
-	attribute nomerge of ADCRD, ADCBSY, SMWR : signal is "";  
+	signal SMWRADC, -- Sample Memory Write by ADC Controller
+		SMWRCPU, -- Sample Memory Write by CPU
+		ACCADD, -- Accumulator Add
+		ACCRST -- Accumulator Reset
+		: std_logic;
+	attribute syn_keep of ADCRD, ADCBSY : signal is true;
+	attribute nomerge of ADCRD, ADCBSY : signal is "";  
 	signal adc_data, smem_data, acc_data : std_logic_vector(17 downto 0);
 	signal smem_addr : std_logic_vector(1 downto 0);
 	signal acc_shift : std_logic_vector(2 downto 0);
@@ -508,6 +512,8 @@ begin
 			DC <= '0';
 			ADCRD <= false;
 			ADCCAL <= false;
+			ACCRST <= '1';
+			SMWRCPU	<= '0';
 			smem_addr <= (others => '0');
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
@@ -518,6 +524,8 @@ begin
 			SWRST <= false;
 			TXI <= false;
 			ADCRD <= false;
+			ACCRST <= '0';
+			SMWRCPU <= '0';
 			int_rst <= (others => '0');
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
@@ -645,6 +653,8 @@ begin
 						when mmu_smcr =>
 							ADCRD  <= (cpu_data_out(0) = '1');
 							ADCCAL <= (cpu_data_out(1) = '1');
+							ACCRST <= cpu_data_out(2);
+							SMWRCPU <= cpu_data_out(3);
 							acc_shift <= cpu_data_out(6 downto 4);
 						
 						-- The sample memory address, which is applied to
@@ -882,7 +892,7 @@ begin
 		Clock => not FCK,
 		ClockEn => '1',
         Reset => '0',
-		WE => SMWR,
+		WE => SMWRADC or SMWRCPU,
 		Address => smem_addr, 
 		Data => acc_data,
 		Q => smem_data);
@@ -893,7 +903,11 @@ begin
 	Sample_Accumulator : entity SMADD port map (
 		DataA => adc_data,
 		DataB => smem_data,
-		Result => acc_data);
+		Result => acc_data,
+		Clock => not FCK,
+		ClockEn => ACCADD,
+		Reset => ACCRST
+		);
 
 -- ADC Controller starts reading one of the fourteen-bit ADCs when 
 -- it detects ADC Read (ADCRD). The CPU can either wait for sixteen TCK
@@ -915,6 +929,8 @@ begin
 		if (RESET = '1') then 
 			state := 0;
 			ADCBSY <= false;
+			ACCADD <= '0';
+			SMWRADC <= '0';
 			
 		-- The ADC Contoller proceeds through states so as initiate a conversion,
 		-- read out one zero, fourteen data bits, and three trailing zeros. If
@@ -968,8 +984,10 @@ begin
 				end if;
 			end if;
 			
+			ACCADD <= to_std_logic((state = read_end - 1) and (not ADCCAL));
+			SMWRADC <= to_std_logic((state = read_end) and (not ADCCAL));
+
 			ADCBSY <= (state /= 0);
-			SMWR <= to_std_logic((state = read_end) and (not ADCCAL));
 
 			state := next_state;
 		end if;

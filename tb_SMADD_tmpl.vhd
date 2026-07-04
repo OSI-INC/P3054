@@ -15,17 +15,22 @@ architecture test of tb is
 
     component SMADD
         port (DataA : in std_logic_vector(17 downto 0); 
-        DataB : in std_logic_vector(17 downto 0); 
+        DataB : in std_logic_vector(17 downto 0); Clock: in std_logic; 
+        Reset: in std_logic; ClockEn: in std_logic; 
         Result : out std_logic_vector(17 downto 0)
     );
     end component;
 
     signal DataA : std_logic_vector(17 downto 0) := (others => '0');
     signal DataB : std_logic_vector(17 downto 0) := (others => '0');
+    signal Clock: std_logic := '0';
+    signal Reset: std_logic := '0';
+    signal ClockEn: std_logic := '0';
     signal Result : std_logic_vector(17 downto 0);
 begin
     u1 : SMADD
-        port map (DataA => DataA, DataB => DataB, Result => Result
+        port map (DataA => DataA, DataB => DataB, Clock => Clock, Reset => Reset, 
+            ClockEn => ClockEn, Result => Result
         );
 
     process
@@ -33,8 +38,8 @@ begin
     begin
       DataA <= (others => '0') ;
       for i in 0 to 200 loop
-        wait for 10 ns;
-        DataA <= DataA + '1' ;
+        wait until Clock'event and Clock = '1';
+        DataA <= DataA + '1' after 1 ns;
       end loop;
       wait;
     end process;
@@ -44,9 +49,27 @@ begin
     begin
       DataB <= (others => '0') ;
       for i in 0 to 200 loop
-        wait for 10 ns;
-        DataB <= DataB + '1' ;
+        wait until Clock'event and Clock = '1';
+        DataB <= DataB + '1' after 1 ns;
       end loop;
+      wait;
+    end process;
+
+    Clock <= not Clock after 5.00 ns;
+
+    process
+
+    begin
+      Reset <= '1' ;
+      wait for 100 ns;
+      Reset <= '0' ;
+      wait;
+    end process;
+
+    process
+
+    begin
+      ClockEn <= '1' ;
       wait;
     end process;
 
