@@ -967,7 +967,13 @@ jp int_xmit_x_loop
 
 int_xmit_x_done:
 
-; Done with transmit interrupt.
+; Done with transmit interrupt. Make sure we are not transmitting before
+; we leave.
+
+int_xmit_done_txw:
+ld A,(mmu_sr)
+and A,sr_txa
+jp nz,int_xmit_done_txw
 
 int_xmit_done:
 
