@@ -68,13 +68,14 @@
 -- converters can be configured in software. Readout and writing to NVM working.
 -- Only problem is 30 uA overhead of a 1024 Hz interrupt.
 
--- V1.13 [03-JUL-26] Reduce Sample Memory to four locations 18 bits wide. Route
+-- V1.13 [05-JUL-26] Reduce Sample Memory to four locations 18 bits wide. Route
 -- output of Sample Memory to one input of the Sample Accumulator. The other 
 -- input comes from the ADC Controller. Upon assertion of ADCRD, the ADC Controller
 -- reads a fourteen-bit sample from the ADC selected by the two-bit Sample Address,
 -- shifts it in accordance with the Accumulation Shift bits, adds it to the 
 -- output of the Sample Memory, and loads the sum back into the same location in
--- sample memory. Eliminate direct readout of the ADC samples.
+-- sample memory. Eliminate direct readout of the ADC samples. Add ACCRST and 
+-- SMWRCPU so we can clear values in the sample memory.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -325,11 +326,9 @@ begin
 
 -- The Fast Clock process produces FCK when the microprocessor asserts Enable
 -- Fast Clock (ENFCK). The fast clock must be running during sample transmission
--- or else the transmission will fail. The fast clock should be running during
--- ADC readout as well, or else it will proceed too slowly. All I2C accesses are
--- much quicker if the CPU is running in boost mode on TCK, which is half the 
--- frequency of FCK. The ring oscillator should be calibrated so that it produces
--- FCK of 10 MHz.
+-- and ADC readout. All I2C accesses run at 500 kHz with the CPU in boost, but
+-- only 3.2 kHz with CPU in slow mode. The ring oscillator should be calibrated 
+-- so that it produces FCK of 10 MHz.
 	Fast_Clock: entity ring_oscillator 
 		generic map (ring_len => fck_divisor)	
 		port map (
@@ -362,9 +361,7 @@ begin
 		Data => ram_in,
 		Q => ram_out);
 
--- The Program Memory is the ROM available for code. This program memory is also
--- accessible for writing during code execution. The top kilobyte appears for both
--- read and write access in the top kilobyte of the CPU memory space. 
+-- The Program Memory is a ROM that holds the CPU program. 
 	Program_Memory : entity ROM port map (
 		Address => prog_cntr,
         OutClock => not CK,
@@ -372,7 +369,8 @@ begin
         Reset => '0',	
         Q => prog_data);
 
--- The OSR8 processor, configured for this application by its generic map.
+-- The OSR8 processor, configured for this application by its 
+-- generic map.
 	CPU : entity OSR8_CPU 
 		generic map (
 			prog_cntr_len => prog_cntr_len,
@@ -395,9 +393,10 @@ begin
 			CK => CK
 		);
 		
--- The Memory Manager maps eight-bit read and write access to the Sensor Controller, Sample 
--- Transmitter, Random Access Memory, and Interrupt Handler. Byte ordering is big-endian 
--- (most significant byte at lower address). 
+-- The Memory Manager maps eight-bit read and write access to the Sensor 
+-- Controller, Sample Transmitter, Random Access Memory, and Interrupt 
+-- Handler. Byte ordering is big-endian (most significant byte at lower 
+-- address). 
 	MMU : process (all) is
 		variable all_bits : integer range 0 to 2048;
 		variable bottom_bits : integer range 0 to 31;
@@ -648,7 +647,7 @@ begin
 						-- turns any serial read into a self-calibration of the
 						-- selected ADC, the ADC being selected by smem_addr. The
 						-- ACCADD strobe causes the output of the sample memory
-						-- to be added to the accumulator. The ACCRST flag clears
+						-- to be added to the accumulator. The ACCRST strobe clears
 						-- the accumulator to zero.
 						when mmu_smcr =>
 							ADCRD  <= (cpu_data_out(0) = '1');
@@ -909,16 +908,16 @@ begin
 		Reset => ACCRST
 		);
 
--- ADC Controller starts reading one of the fourteen-bit ADCs when 
--- it detects ADC Read (ADCRD). The CPU can either wait for sixteen TCK
--- periods (4.2 us) or poll the ADCBSY bit in the status register until
--- it clears. If ADCRD is accompanied by ADCCAL, the ADC Controller 
--- performs a calibration read of twenty-four bits, which causes a self-
--- calibration provided that the calibration access is the first one after
--- power-up. The controller shifts fourteen-bit samples into the adc_data
--- register and then stores them in the sample memory. The ADC it selects
--- for readout is the one specified by the top two bits of the sample 
--- address.
+-- ADC Controller starts reading one of the 14-bit ADCs when it detects 
+-- ADC Read (ADCRD). It waits until ADCRD is unasserted before returning
+-- to its rest state. The controller shifts 14-bit samples to the left
+-- up to four place, as directed by acc_shift. After shifting, the 
+-- controller adds the sample to the accumulator, and writes the output
+-- of the accumulator to the sample memory. The ADC it selects
+-- for readout is the one specified by adc_sel. If ADCRD is accompanied 
+-- by ADCCAL, the ADC Controller performs a calibration read of twenty-four 
+-- bits, with no shifting, no accumulation, and no storage. This calibration-- read will cause the ADC to self-calibrate provided that the calibration 
+-- access is the first one after power-up. 
 	ADC_Controller : process (RESET, FCK) is
 		variable state, next_state : integer range 0 to 63 := 0;
 		constant calib_end : integer := 50;
