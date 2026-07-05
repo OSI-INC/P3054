@@ -59,9 +59,12 @@ const mmu_i2cZ0  0x0016 ; i2c SDA=Z SCL=0 (Write/Readback)
 const mmu_i2cZ1  0x0017 ; i2c SDA=Z SCL=1 (Write/Readback) 
 const mmu_i2cMR  0x0018 ; i2c Most Recent Eight Bits (Read)
 const mmu_smcr   0x0019 ; Sample Control Register (Write)
-const mmu_saddr  0x001A ; Sample Address Register (Write/Readback)
-const mmu_smemh  0x001D ; ADC Data HI Byte (Read)
-const mmu_smeml  0x001E ; ADC Data LO Byte (Read)
+const mmu_x1cfg  0x001A ; X1 Configuration (Write/Readback)
+const mmu_x2cfg  0x001B ; X2 Configuration (Write/Readback)
+const mmu_x3cfg  0x001C ; X3 Configuration (Write/Readback)
+const mmu_x4cfg  0x001D ; X4 Configuration (Write/Readback)
+const mmu_smemh  0x001E ; ADC Data HI Byte (Read)
+const mmu_smeml  0x001F ; ADC Data LO Byte (Read)
 
 ; Firmware and hardware constants.
 
@@ -90,25 +93,18 @@ const key_lb     0x0301
 
 const x1_xpd     0x0310 ; Transmit Period
 const x1_idx     0x0311 ; Sample Index
-const x1_scc     0x0312 ; Sample Control Command
-const x1_xch     0x0313 ; Transmit Channel Number
+const x1_xch     0x0312 ; Transmit Channel Number
+const x2_xpd     0x0313 ; Transmit Period
+const x2_idx     0x0314 ; Sample Index
+const x2_xch     0x0315 ; Transmit Channel Number
+const x3_xpd     0x0316 ; Transmit Period
+const x3_idx     0x0317 ; Sample Index
+const x3_xch     0x0318 ; Transmit Channel Number
+const x4_xpd     0x0319 ; Transmit Period
+const x4_idx     0x031A ; Sample Index
+const x4_xch     0x031B ; Transmit Channel Number
 
-const x2_xpd     0x0320 ; Transmit Period
-const x2_idx     0x0321 ; Sample Index
-const x2_scc     0x0322 ; Sample Control Command
-const x2_xch     0x0323 ; Transmit Channel Number
-
-const x3_xpd     0x0330 ; Transmit Period
-const x3_idx     0x0331 ; Sample Index
-const x3_scc     0x0332 ; Sample Control Command
-const x3_xch     0x0333 ; Transmit Channel Number
-
-const x4_xpd     0x0340 ; Transmit Period
-const x4_idx     0x0341 ; Sample Index
-const x4_scc     0x0342 ; Sample Control Command
-const x4_xch     0x0343 ; Transmit Channel Number
-
-const dc_in      0x034F ; DC-Coupled Inputs
+const dc_in      0x031F ; DC-Coupled Inputs
 
 ; Variables: Configuration of the TMP117 temperature sensor. 
 ; The period is in multiples of 250 ms. We have a two-byte
@@ -153,7 +149,6 @@ const nvm_xal    0x0374 ; Transmit Address, LO
 
 const sack_key   0x03F0 ; Acknowledgement key
 const ccmdb      0x03F1 ; Copy of Command Byte
-const adc_idx    0x03F2 ; ADC Index
 
 ; Constants: Non-volatile memory password.
 
@@ -167,7 +162,7 @@ const sr_enfck     0x02 ; Enable Fast Clock
 const sr_mck       0x04 ; Millisecond Clock
 const sr_txa       0x08 ; Transmit Active
 const sr_cpa       0x10 ; Command Processor Active
-const sr_adcbsy    0x20 ; ADC Controller Busy
+const sr_scbsy     0x20 ; Sample Controller Busy
 const sr_cme       0x40 ; Command Memory Empty
 const sr_rck       0x80 ; Current Value of Reference Clock
 
@@ -206,12 +201,9 @@ const uprog_tick    163 ; User program interrupt period minus one
 const id_delay       33 ; Identification spacing in TCK periods
 const ms_tick        33 ; One millisecond in RCK periods
 const int_period     31 ; Interrupt period in RCK periods
-const adc_rdly       16 ; Clock cycles for ADC readout
-const adc_cdly       22 ; Clock cycles for ADC self-calibration
 const lon_ms         20 ; Lamp on time in milliseconds
 const loff_ms       200 ; Lamp off time in milliseconds
 const sps_0           0 ; Disable a channel.
-const sps_32         32 ; 1/32 s in interrupt periods
 const sps_64         16 ; 1/64 s in interrupt periods
 const sps_128         8 ; 1/128 s in interrupt periods
 const sps_256         4 ; 1/256 s in interrupt periods
@@ -298,20 +290,20 @@ const bma_disable  0x00 ; For PWR_CTRL, disable data acquisition.
 const bma_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
 const bma_sdly        2 ; Startup delay in milliseconds
 
-; Constants: Sample Controller.
+; Constants: for use with the Sample Controller.
 
-const sm_rd0       0x01 ; Read with No Shift
-const sm_rd1       0x11 ; Read with 1 Shift
-const sm_rd2       0x21 ; Read with 2 Shifts
-const sm_rd3       0x31 ; Read with 3 Shifts
-const sm_rd4       0x41 ; Read with 4 Shifts
-const sm_calib     0x03 ; Calibrate an ADC
-const sm_accrst    0x04 ; Reset the Accumulator
-const sm_smwrcpu   0x08 ; Write to Sample Memory
-const sm_x1           0 ; X1 Sample Memory Location
-const sm_x2           1 ; X2 Sample Memory Location
-const sm_x3           2 ; X3 Sample Memory Location
-const sm_x4           3 ; X4 Sample Memory Location
+const adc_shift0   0x00 ; No Shift Left
+const adc_shift1   0x20 ; One Shift Left
+const adc_shift2   0x40 ; Two Shifts Left
+const adc_shift3   0x60 ; Three Shifts Left
+const adc_shift4   0x80 ; Four Shifts Left
+const acc_rst      0x04 ; Reset the Accumulator
+const sm_wrcpu     0x08 ; Write to Sample Memory
+const sc_run       0x10 ; Sample Controller Run
+const sm_x1        0x00 ; X1 Sample Memory Location
+const sm_x2        0x01 ; X2 Sample Memory Location
+const sm_x3        0x02 ; X3 Sample Memory Location
+const sm_x4        0x03 ; X4 Sample Memory Location
 
 ; Constants: Mathematical.
 
@@ -600,63 +592,6 @@ pop F
 ret
 
 ; ------------------------------------------------------------
-; Configure the ADCs, which consists of getting them each to
-; perform self-calibration. We must call this configuration before
-; any other samples are taken from the ADCs, just after we apply
-; power to the IPT. The self-calibration consists of a twenty-four
-; bit readout, which is effective before any sample is taken, but
-; not effective after the first sample is taken. The ADC Controller
-; runs of FCK, so we must have TCK running when we call this routine.
-;
-; Assumes boost mode and interrupts disabled.
-;
-
-adc_calib:
-
-push F
-push A
-
-ld A,sm_x1
-ld (mmu_saddr),A
-ld A,sm_calib
-ld (mmu_smcr),A
-adc_calib_1:
-ld A,(mmu_sr)
-and A,sr_adcbsy
-jp nz,adc_calib_1
-
-ld A,sm_x2
-ld (mmu_saddr),A
-ld A,sm_calib
-ld (mmu_smcr),A
-adc_calib_2:
-ld A,(mmu_sr)
-and A,sr_adcbsy
-jp nz,adc_calib_2
-
-ld A,sm_x3
-ld (mmu_saddr),A
-ld A,sm_calib
-ld (mmu_smcr),A
-adc_calib_3:
-ld A,(mmu_sr)
-and A,sr_adcbsy
-jp nz,adc_calib_3
-
-ld A,sm_x4
-ld (mmu_saddr),A
-ld A,sm_calib
-ld (mmu_smcr),A
-adc_calib_4:
-ld A,(mmu_sr)
-and A,sr_adcbsy
-jp nz,adc_calib_4
-
-pop A
-pop F
-ret
-
-; ------------------------------------------------------------
 ; The interrupt handler. Assumes that it interrupts a program
 ; running off the slow clock. Boosts as quickly as possible to
 ; fast clock, executes, then restores the clock. We handle the
@@ -692,6 +627,13 @@ push H
 push L
 push IX
 push IY
+
+; Handle the sample interrupt.
+
+int_sample: 
+
+ld A,sc_run
+ld (mmu_smcr),A
 
 ; Handle the transmit interrupt.
 
@@ -829,81 +771,64 @@ ld A,tx_delay
 dly A
 int_xmit_nvm_done:
 
-; Sample and transmit X1-X4 input ADCs. We sample all enabled 
-; inputs on every interrupt. We transmit an accumulated sample 
-; every transmit sample period. We access the ADC1-ADC4 control 
-; variables using the fact that they are offset from one another 
-; by sixteen bytes. We point IX at the variable locations as 
-; needed. The control bytes are x1_xpd, x1_idx, x1_scc, and
-; x1_xch, and so on for each of the remaining ADCs.
+; Sample and transmit X1-X4 input ADCs. 
 
 int_xmit_x:
 
-; The first ADC is X1. We store the base address of its control 
-; variables in HL. We store the ADC index in memory. This index 
-; will serve both as a counter and a sample selector.
+; The first ADC is X1. We store the address of its transmit
+; period in IX. We will be incrementing and decrementing IX
+; to access the ADC control variables. We will keep in B
+; the sample memory address of this input's sample.
  
-ld HL,x1_xpd
+ld IX,x1_xpd
 ld A,sm_x1
-ld (adc_idx),A
+push A
+pop B
 
-; This loop assumes HL contains the address of a block of variables 
-; that controls readout and accumulation of one the ADCs and also 
-; that the location adc_idx contains a counter that is zero for
-; the first ADC and increments thereafter.
+; Make sure the Sample Controller is not busy.
+
+int_xmit_x_scw:
+ld A,(mmu_sr)
+and A,sr_scbsy
+jp nz,int_xmit_x_scw
+
+; This loop assumes IX contains the address of one of the
+; transmit period for one of X1-X4 and also that (adc_idx) 
+; contains a the sample address of the same input.
 
 int_xmit_x_loop:
 
-; The base address of this input's control variables is stored
-; in HL. We move into IX.
-
-push H
-push L
-pop IX ; Transmit Period
-
-; If the transmit period is zero, the ADC is disabled, so 
-; move to the next ADC. 
+; If the transmit period is zero, the input is disabled, so 
+; move to the next input. Note that IX is pointing at this
+; input's transmit period.
 
 ld A,(IX)
 add A,0
 jp z,int_xmit_x_next
 
-; Set the Sample Address to select this ADC's location in 
-; the sample memory.
-
-ld A,(adc_idx)
-ld (mmu_saddr),A
-
-; Make sure the ADC is not busy.
-
-int_xmit_x_scw:
-ld A,(mmu_sr)
-and A,sr_adcbsy
-jp nz,int_xmit_x_scw
-
-; Initiate the read, shift, and accumulate by writing this 
-; channel's sample control code to the sample control register.
+; Decrement the sample index. If it is not yet zero, we are 
+; not ready to transmit. Move on to the next ADC, but first
+; we decrement IX so it goes back to pointing to the transmit
+; period.
 
 inc IX ; Sample Index
-inc IX ; Sample Controller Code
-ld A,(IX)
-ld (mmu_smcr),A
-
-; Decrement the sample index. If it is not yet zero, we are 
-; not ready to transmit. Move on to the next ADC.
-
-dec IX ; Sample Index
 ld A,(IX)
 dec A
 ld (IX),A
+dec IX ; Transmit Period
 jp nz,int_xmit_x_next
 
-; Set the transmit index equal to the transmit period.
+; Set the sample index equal to the transmit period.
 
-dec IX ; Transmit Period
 ld A,(IX)
 inc IX ; Sample Index
 ld (IX),A
+
+; Select this input's sample in the sample memory.
+
+push B
+pop A
+ld (mmu_smcr),A
 
 ; Make sure the transmitter is not busy.
 
@@ -912,55 +837,60 @@ ld A,(mmu_sr)
 and A,sr_txa
 jp nz,int_xmit_x_txw
 
-; Read the output from the sample memory and transfer to the
-; Sample Transmitter.
+; Read the accumulated sample provided by the sample memory
+; and write to the sample transmitter.
 
 ld A,(mmu_smemh)
 ld (mmu_xhb),A
 ld A,(mmu_smeml)
 ld (mmu_xlb),A
 
-; Set the transmit channel number and transmit the accumulated 
-; sample.
+; Load the telemetry channel number into the sample transmitter.
 
-inc IX ; Sample Control Code
-inc IX ; Transmit Channel Number
+inc IX ; Telemetry Channel
 ld A,(IX)
 ld (mmu_xch),A
+
+; Transmit the message.
+
 ld A,tx_txi 
 ld (mmu_xcr),A
 
 ; Reset the Sample Accumulator so that its output is zero, then
 ; store that zero in the sample memory, so we are ready to start
-; accumulating the next sample.
+; accumulating the next sample. We must construct the two commands
+; that reset and store by combining the sample memory address,
+; which is in B, and the correct control bits.
 
-ld A,sm_accrst
+ld A,acc_rst
+or A,B
 ld (mmu_smcr),A
-ld A,sm_smwrcpu
+ld A,sm_wrcpu
+or A,B
 ld (mmu_smcr),A
 
-; Done with this input, time to move on to the next one.
+; Done with this input, time to move on to the next one, but 
+; first move IX back to point to this channels transmit period.
+
+dec IX ; Sample Index
+dec IX ; Sample Period
 
 int_xmit_x_next:
 
 ; Check thed ADC index. If it is equal to sample memory address
 ; of the final ADC, we are done with all of them.
 
-ld A,(adc_idx)
-sub A,sm_x4
+ld A,sm_x4
+sub A,B
 jp z,int_xmit_x_done
 
-; Prepare for the next ADC. We increment the ADC index by one and
-; the control variable address pointer by sixteen.
+; Prepare for the next ADC. We increment the ADC index and move
+; IX from this input's period to the next input's period.
 
-ld A,(adc_idx)
-inc A
-ld (adc_idx),A
-push L
-pop A
-add A,16
-push A
-pop L
+inc B
+inc IX
+inc IX
+inc IX
 jp int_xmit_x_loop
 
 ; Done with ADC readout and transmission.
@@ -1658,24 +1588,26 @@ ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
 ld A,sps_256
 ld (x1_xpd),A
 ld (x1_idx),A
+or A,adc_shift2
+ld (mmu_x1cfg),A
 
 ld A,sps_256
 ld (x2_xpd),A
 ld (x2_idx),A
+or A,adc_shift2
+ld (mmu_x2cfg),A
 
 ld A,sps_256
 ld (x3_xpd),A
 ld (x3_idx),A
+or A,adc_shift2
+ld (mmu_x3cfg),A
 
 ld A,sps_256
 ld (x4_xpd),A
 ld (x4_idx),A
-
-ld A,sm_rd2
-ld (x1_scc),A
-ld (x2_scc),A
-ld (x3_scc),A
-ld (x4_scc),A
+or A,adc_shift2
+ld (mmu_x4cfg),A
 
 ld A,33
 ld (x1_xch),A  
@@ -1689,8 +1621,6 @@ ld (x4_xch),A
 ld A,0x00
 ld (dc_in),A
 ld (mmu_acfg),A
-
-call adc_calib
 
 ; Configure the TMP117 temperature sensor and its telemetry
 ; channel.

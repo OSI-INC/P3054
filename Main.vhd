@@ -153,10 +153,13 @@ entity main is
 	constant mmu_i2cZ0 : integer := 16#16#; -- i2c SDA=Z SCL=0 (Write/Readback)
 	constant mmu_i2cZ1 : integer := 16#17#; -- i2c SDA=Z SCL=1 (Write/Readback)
 	constant mmu_i2cMR : integer := 16#18#; -- i2C Most Recent Eight Bits (Read)
-	constant mmu_smcr  : integer := 16#19#; -- Sample Control (Write)
-	constant mmu_saddr : integer := 16#1A#; -- Sample Address (Write/Readback)
-	constant mmu_smemh : integer := 16#1D#; -- Sample HI Byte (Read)
-	constant mmu_smeml : integer := 16#1E#; -- Sample LO Byte (Read)
+	constant mmu_smcr  : integer := 16#19#; -- Sample Control (Write/Readback)
+	constant mmu_x1cfg : integer := 16#1A#; -- X1 Configuration (Write/Readback)
+	constant mmu_x2cfg : integer := 16#1B#; -- X2 Configuration (Write/Readback)
+	constant mmu_x3cfg : integer := 16#1C#; -- X3 Configuration (Write/Readback)
+	constant mmu_x4cfg : integer := 16#1D#; -- X4 Configuration (Write/Readback)
+	constant mmu_smemh : integer := 16#1E#; -- Sample HI Byte (Read)
+	constant mmu_smeml : integer := 16#1F#; -- Sample LO Byte (Read)
 end;
 
 architecture behavior of main is
@@ -192,21 +195,30 @@ architecture behavior of main is
 	signal tx_channel : integer range 0 to 255 := tx_channel_default;
 	signal frequency_low : integer range 0 to 31 := default_frequency_low;
 		
--- Sample Controller. The syn_keep and nomerge reduce code size slightly.
+-- Telemetry Manager, Sample Controller, and ADC Controller.
 	signal ADCCAL, -- Calibrate the Selected ADC
 		ADCRD, -- Initiate ADC Read
-		ADCBSY -- ADC Busy
+		ADCBSY, -- ADC Busy
+		SCRUN, -- Sample Controller Run
+		SCBSY -- Sample Controller Busy
 		: boolean := false;
 	signal SMWRADC, -- Sample Memory Write by ADC Controller
 		SMWRCPU, -- Sample Memory Write by CPU
 		ACCADD, -- Accumulator Add
 		ACCRST -- Accumulator Reset
 		: std_logic;
-	attribute syn_keep of ADCRD, ADCBSY : signal is true;
-	attribute nomerge of ADCRD, ADCBSY : signal is "";  
+	attribute syn_keep of ADCRD, ADCBSY, SCBSY, SCRUN : signal is true;
+	attribute nomerge of ADCRD, ADCBSY, SCBSY, SCRUN : signal is "";  
 	signal adc_data, smem_data, acc_data : std_logic_vector(17 downto 0);
-	signal smem_addr : std_logic_vector(1 downto 0);
-	signal acc_shift : std_logic_vector(2 downto 0);
+	signal smem_addr, adc_sel, sample_sel : std_logic_vector(1 downto 0);
+	constant x1_sel : std_logic_vector(1 downto 0) := "00";
+	constant x2_sel : std_logic_vector(1 downto 0) := "01";
+	constant x3_sel : std_logic_vector(1 downto 0) := "10";
+	constant x4_sel : std_logic_vector(1 downto 0) := "11";
+	signal adc_shift, x1_shift, x2_shift, x3_shift, 
+		x4_shift : std_logic_vector(2 downto 0);
+	signal x1_period, x2_period, x3_period, 
+		x4_period : std_logic_vector(4 downto 0);
 
 -- I2C Bus Controller
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
@@ -443,7 +455,7 @@ begin
 							cpu_data_in(2) <= MCK;                  -- Millisecond Clock
 							cpu_data_in(3) <= to_std_logic(TXA);    -- Transmit Active
 							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active 
-							cpu_data_in(5) <= to_std_logic(ADCBSY); -- ADC Controller Busy
+							cpu_data_in(5) <= to_std_logic(SCBSY);  -- Sample Controller Busy
 							cpu_data_in(6) <= CME;                  -- Command Memory Empty
 							cpu_data_in(7) <= RCK;                  -- Reference Clock
 							
@@ -509,11 +521,10 @@ begin
 			SCL <= '1';
 			MSR <= '0';
 			DC <= '0';
-			ADCRD <= false;
-			ADCCAL <= false;
 			ACCRST <= '1';
 			SMWRCPU	<= '1';
-			smem_addr <= (others => '0');
+			SCRUN <= false;
+			sample_sel <= (others => '0');
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
 		-- and transmit activity. Some signals we assert only for one CK period, and 
@@ -522,9 +533,9 @@ begin
 			CPRST <= false;
 			SWRST <= false;
 			TXI <= false;
-			ADCRD <= false;
 			ACCRST <= '0';
 			SMWRCPU <= '0';
+			SCRUN <= false;
 			int_rst <= (others => '0');
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
@@ -641,34 +652,39 @@ begin
 							i2c_in(7 downto 1) <= i2c_in(6 downto 0);
 							i2c_in(0) <= SDA;
 							
-						-- Strobes and flags that control the ADCs and the
-						-- ADC sample accumulator. The ADCRD strobe initiates
-						-- an SDI serial interface read. The ADCCAL flag 
-						-- turns any serial read into a self-calibration of the
-						-- selected ADC, the ADC being selected by smem_addr. The
-						-- ACCADD strobe causes the output of the sample memory
-						-- to be added to the accumulator. The ACCRST strobe clears
-						-- the accumulator to zero.
+						-- The sample select control register begins with two
+						-- bits to select which accumulated sample the CPU
+						-- will get when it reads the sample memory HI and
+						-- LO bytes. The sample memory will accept this 
+						-- sample select value provided that ADCBSY is not
+						-- asserted. The ACCRST and SMWRCPU strobes reset the
+						-- accumulator output and write the accumulator output
+						-- to the selected accumulated sample. The SCRUN strobe
+						-- starts the Sample Controller running.
 						when mmu_smcr =>
-							ADCRD  <= (cpu_data_out(0) = '1');
-							ADCCAL <= (cpu_data_out(1) = '1');
+							sample_sel <= cpu_data_out(1 downto 0);
 							ACCRST <= cpu_data_out(2);
 							SMWRCPU <= cpu_data_out(3);
-							acc_shift <= cpu_data_out(6 downto 4);
-						
-						-- The sample memory address, which is applied to
-						-- the sample memory to determine where samples are
-						-- stored and from where they are retrieved. We also
-						-- use the top two bits of the sample memory address
-						-- to select which ADC will be read out by the SDI 
-						-- interface. When taking a sample, we store it in 
-						-- the sample memory. When composing a sample for 
-						-- transmission, we read one or more samples from the
-						-- sample memory and add them together in the sample
-						-- accumulator.
-						when mmu_saddr =>
-							smem_addr(1 downto 0) <= cpu_data_out(1 downto 0);
+							SCRUN <= (cpu_data_out(4) = '1');
 							
+						-- We have four locations to store sampling configuration
+						-- for each of the four inputs. The period is the number
+						-- of sample interrupts between sample transmission. The 
+						-- shift is the number of left-shifts that should occur
+						-- in the ADC Controller.
+						when mmu_x1cfg =>
+							x1_period <= cpu_data_out(4 downto 0);
+							x1_shift <= cpu_data_out(7 downto 5);
+						when mmu_x2cfg =>
+							x2_period <= cpu_data_out(4 downto 0);
+							x2_shift <= cpu_data_out(7 downto 5);
+						when mmu_x3cfg =>
+							x3_period <= cpu_data_out(4 downto 0);
+							x3_shift <= cpu_data_out(7 downto 5);
+						when mmu_x4cfg =>
+							x4_period <= cpu_data_out(4 downto 0);
+							x4_shift <= cpu_data_out(7 downto 5);
+
 						-- For all other addresses, we have not bits to set.
 						-- Note that the shadow RAM is recording all writes
 						-- to these addresses, and will respond to reads for
@@ -895,6 +911,23 @@ begin
 		Address => smem_addr, 
 		Data => acc_data,
 		Q => smem_data);
+	
+-- The Sample Memory Address Multiplexer sets the sample memory 
+-- address equal to adc_sel when the ADC Controller is busy, and
+-- sample_sel otherwise. The former is incremented by the Sample 
+-- Controller as it steps through the ADCs performing samples. The
+-- latter is set by the CPU with a write to the sample memory
+-- address register.
+	Sample_Addr_Mux : process (FCK) is 
+	begin
+		if rising_edge(FCK) then
+			if SCBSY then
+				smem_addr <= adc_sel;
+			else
+				smem_addr <= sample_sel;
+			end if;
+		end if;
+	end process;
 		
 -- The Sample Accumulator adds fourteen-bit samples from the Sample 
 -- Memory together so as to produce an eighteen-bit value from which
@@ -908,10 +941,129 @@ begin
 		Reset => ACCRST
 		);
 
+-- The Sample Controller. 
+	Sample_Controller : process (FCK) is
+	variable state, next_state : integer range 0 to 15 := 0;
+	constant sc_idle : integer := 0;
+	constant x1_start : integer := 1;
+	constant x1_wait : integer := 2;
+	constant x2_start : integer := 3;
+	constant x2_wait : integer := 4;
+	constant x3_start : integer := 5;
+	constant x3_wait : integer := 6;
+	constant x4_start : integer := 7;
+	constant x4_wait : integer := 8;
+	constant sc_wait : integer:= 9;
+	
+	begin
+		if RESET = '1'  then
+			ADCCAL <= false;
+			ADCRD <= false;
+			adc_sel <= x1_sel;
+			state := sc_idle;
+		elsif falling_edge(FCK) then
+			if (state =sc_idle) then 
+				adc_sel <= x1_sel;
+				ADCRD <= false;
+				adc_shift <= x1_shift;
+				if SCRUN then
+					next_state := x1_start;
+				else
+					next_state := sc_idle;
+				end if;
+			elsif (state = x1_start) then
+				adc_sel <= x1_sel;
+				ADCRD <= true;
+				adc_shift <= x1_shift;
+				if ADCBSY then
+					next_state := x1_wait;	
+				else
+					next_state := x1_start;
+				end if;
+			elsif (state = x1_wait) then
+				adc_sel <= x1_sel;
+				ADCRD <= false;
+				adc_shift <= x1_shift;
+				if ADCBSY then
+					next_state := x1_wait;
+				else
+					next_state := x2_start;
+				end if;			elsif (state = x2_start) then
+				adc_sel <= x2_sel;
+				ADCRD <= true;
+				adc_shift <= x2_shift;
+				if ADCBSY then
+					next_state := x2_wait;
+				else
+					next_state := x2_start;
+				end if;
+			elsif (state = x2_wait) then
+				adc_sel <= x2_sel;
+				ADCRD <= false;
+				adc_shift <= x2_shift;
+				if ADCBSY then
+					next_state := x2_wait;
+				else
+					next_state := x3_start;
+				end if;
+			elsif (state = x3_start) then
+				adc_sel <= x3_sel;
+				ADCRD <= true;
+				adc_shift <= x3_shift;
+				if ADCBSY then
+					next_state := x3_wait;
+				else
+					next_state := x3_start;
+				end if;
+			elsif (state = x3_wait) then
+				adc_sel <= x3_sel;
+				ADCRD <= false;
+				adc_shift <= x3_shift;
+				if ADCBSY then
+					next_state := x3_wait;
+				else
+					next_state := x4_start;
+				end if;
+			elsif (state = x4_start) then
+				adc_sel <= x4_sel;
+				ADCRD <= true;
+				adc_shift <= x4_shift;
+				if ADCBSY then
+					next_state := x4_wait;
+				else
+					next_state := x4_start;
+				end if;
+			elsif (state = x4_wait) then
+				adc_sel <= x4_sel;
+				ADCRD <= false;
+				adc_shift <= x4_shift;
+				if ADCBSY then
+					next_state := x4_wait;
+				else
+					next_state := sc_wait;
+				end if;
+			elsif (state = sc_wait) then
+				adc_sel <= x4_sel;
+				ADCRD <= false;
+				adc_shift <= x4_shift;
+				ADCCAL <= false;
+				if SCRUN then
+					next_state := sc_wait;
+				else
+					next_state := sc_idle;
+				end if;
+			else 
+				next_state := sc_idle;
+			end if;
+			state := next_state;
+			SCBSY <= (state > sc_idle) and (state < sc_wait);
+		end if;
+	end process;
+
 -- ADC Controller starts reading one of the 14-bit ADCs when it detects 
 -- ADC Read (ADCRD). It waits until ADCRD is unasserted before returning
 -- to its rest state. The controller shifts 14-bit samples to the left
--- up to four place, as directed by acc_shift. After shifting, the 
+-- up to four place, as directed by adc_shift. After shifting, the 
 -- controller adds the sample to the accumulator, and writes the output
 -- of the accumulator to the sample memory. The ADC it selects
 -- for readout is the one specified by adc_sel. If ADCRD is accompanied 
@@ -930,6 +1082,7 @@ begin
 			ADCBSY <= false;
 			ACCADD <= '0';
 			SMWRADC <= '0';
+			adc_data <= (others => '0');
 			
 		-- The ADC Contoller proceeds through states so as initiate a conversion,
 		-- read out one zero, fourteen data bits, and three trailing zeros. If
@@ -974,10 +1127,10 @@ begin
 					adc_data(17 downto 1) <= adc_data(16 downto 0);
 					adc_data(0) <= SDO;
 				end if;
-				if ((state = 32) and (unsigned(acc_shift) >= 1))
-					or ((state = 34) and (unsigned(acc_shift) >= 2)) 
-					or ((state = 36) and (unsigned(acc_shift) >= 3))
-					or ((state = 38) and (unsigned(acc_shift) >= 4)) then
+				if ((state = 32) and (unsigned(adc_shift) >= 1))
+					or ((state = 34) and (unsigned(adc_shift) >= 2)) 
+					or ((state = 36) and (unsigned(adc_shift) >= 3))
+					or ((state = 38) and (unsigned(adc_shift) >= 4)) then
 					adc_data(17 downto 1) <= adc_data(16 downto 0);
 					adc_data(0) <= '0';
 				end if;
@@ -985,18 +1138,18 @@ begin
 			
 			ACCADD <= to_std_logic((state = read_end - 1) and (not ADCCAL));
 			SMWRADC <= to_std_logic((state = read_end) and (not ADCCAL));
-
-			ADCBSY <= (state /= 0);
+			ADCBSY <= ((not ADCCAL) and (state > 0) and (state < read_end))
+				or (ADCCAL and (state > 0) and (state < calib_end));
 
 			state := next_state;
 		end if;
 		
 		-- The ADC we read out or calibrate is selected by the top two bits 
 		-- of the sample address.
-		NADC1 <= to_std_logic(not (ADCBSY and (smem_addr = "00")));
-		NADC2 <= to_std_logic(not (ADCBSY and (smem_addr = "01")));
-		NADC3 <= to_std_logic(not (ADCBSY and (smem_addr = "10")));
-		NADC4 <= to_std_logic(not (ADCBSY and (smem_addr = "11")));
+		NADC1 <= to_std_logic(not (ADCBSY and (adc_sel = x1_sel)));
+		NADC2 <= to_std_logic(not (ADCBSY and (adc_sel = x2_sel)));
+		NADC3 <= to_std_logic(not (ADCBSY and (adc_sel = x3_sel)));
+		NADC4 <= to_std_logic(not (ADCBSY and (adc_sel = x4_sel)));
 	end process;
 
 -- The Message Transmitter responds to Transmit Initiate (TXI) by turning on the 
