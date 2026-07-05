@@ -1671,19 +1671,19 @@ ld A,sps_256
 ld (x4_xpd),A
 ld (x4_idx),A
 
-ld A,sps_256
+ld A,sm_rd2
 ld (x1_scc),A
 ld (x2_scc),A
 ld (x3_scc),A
 ld (x4_scc),A
 
-ld A,1
+ld A,33
 ld (x1_xch),A  
-inc A 
+ld A,34
 ld (x2_xch),A
-inc A
+ld A,35
 ld (x3_xch),A
-inc A
+ld A,36
 ld (x4_xch),A
 
 ld A,0x00

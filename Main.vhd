@@ -513,7 +513,7 @@ begin
 			ADCRD <= false;
 			ADCCAL <= false;
 			ACCRST <= '1';
-			SMWRCPU	<= '0';
+			SMWRCPU	<= '1';
 			smem_addr <= (others => '0');
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
@@ -1498,5 +1498,4 @@ begin
 	
 -- Test Point appears on P1-7.
 	TP <= df_reg(0);
-
 end behavior;
