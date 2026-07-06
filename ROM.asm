@@ -49,8 +49,7 @@ const mmu_dfr    0x000C ; Diagnostic Flag Register (Write/Readback)
 const mmu_sr     0x000D ; Status Register (Read)
 const mmu_cmp    0x000E ; Command Memory Portal (Read)
 const mmu_cpr    0x000F ; Command Processor Reset (Write)
-const mmu_i3p    0x0010 ; Interrupt Timer Three Period (Write/Readback)
-const mmu_i4p    0x0011 ; Interrupt Timer Four Period (Write/Readback)
+const mmu_i0p    0x0011 ; Interrupt Zero Period (Write/Readback)
 const mmu_i2c00  0x0012 ; i2c SDA=0 SCL=0 (Write/Readback)
 const mmu_i2c01  0x0013 ; i2c SDA=0 SCL=1 (Write/Readback)
 const mmu_i2cA0  0x0014 ; i2c SDA=A SCL=0 (Write/Readback)
@@ -65,11 +64,6 @@ const mmu_x3cfg  0x001C ; X3 Configuration (Write/Readback)
 const mmu_x4cfg  0x001D ; X4 Configuration (Write/Readback)
 const mmu_smemh  0x001E ; ADC Data HI Byte (Read)
 const mmu_smeml  0x001F ; ADC Data LO Byte (Read)
-
-; Firmware and hardware constants.
-
-const sm_blksz       64 ; Sample Memory Block Size (bytes)
-const num_adcs        4 ; The number of ADCs on the device
 
 ; The variable space will be entirely written on start-up by a
 ; a block read from the NVM. Before copying, however, we check
@@ -158,7 +152,7 @@ const nvm_pssl     0x62
 ; Constants: Status Register Bit Masks
 
 const sr_cmdrdy    0x01 ; Command Ready
-const sr_enfck     0x02 ; Enable Fast Clock
+const sr_rp        0x02 ; Receive Power
 const sr_mck       0x04 ; Millisecond Clock
 const sr_txa       0x08 ; Transmit Active
 const sr_cpa       0x10 ; Command Processor Active
@@ -299,7 +293,6 @@ const adc_shift3   0x61 ; Three Shifts Left, Sample 1024 SPS
 const adc_shift4   0x81 ; Four Shifts Left, Sample 1024 SPS
 const acc_rst      0x04 ; Reset the Accumulator
 const sm_wrcpu     0x08 ; Write to Sample Memory
-const sc_run       0x10 ; Sample Controller Run
 const sm_x1        0x00 ; X1 Sample Memory Location
 const sm_x2        0x01 ; X2 Sample Memory Location
 const sm_x3        0x02 ; X3 Sample Memory Location
@@ -628,23 +621,16 @@ push L
 push IX
 push IY
 
-; Handle the sample interrupt.
-
-int_sample: 
-
-ld A,sc_run
-ld (mmu_smcr),A
-
 ; Handle the transmit interrupt.
 
 int_xmit:
 
 ld A,(mmu_irqb)     ; Read the interrupt request bits
-and A,bit3_mask     ; and test bit three,
+and A,bit0_mask     ; and test bit zero,
 jp z,int_xmit_done  ; skip transmit if not set.
 
-ld A,bit3_mask      ; Reset this interrupt
-ld (mmu_irst),A     ; with the bit three mask.
+ld A,bit0_mask      ; Reset this interrupt
+ld (mmu_irst),A     ; with the bit zero mask.
 
 ; Transmit a temperature measurement. After that, we decrement
 ; the two-byte temperature period counter. When it reaches zero,
@@ -784,13 +770,6 @@ ld IX,x1_xpd
 ld A,sm_x1
 push A
 pop B
-
-; Make sure the Sample Controller is not busy.
-
-int_xmit_x_scw:
-ld A,(mmu_sr)
-and A,sr_scbsy
-jp nz,int_xmit_x_scw
 
 ; This loop assumes IX contains the address of one of the
 ; transmit period for one of X1-X4 and also that (adc_idx) 
@@ -1412,34 +1391,32 @@ call annc_ack
 jp cmd_loop
 check_zon_end:
 
-; Start telemetry protocol. We set the number-four interrupt
-; period to the interrupt period and unmask it.
+; Start telemetry protocol. We un-mask interrupt one, which
+; starts the Telemetry Manager, which in turn will generate
+; the number-one interrupt.
 
 check_ton:
 ld A,(ccmdb)
 sub A,op_ton
 jp nz,check_ton_end
-ld A,int_period      ; Load the interrupt period,
-ld (mmu_i4p),A       ; write to interrupt timer four.
-ld A,(mmu_imsk)      ; Enable interrupt timer four
-or A,bit3_mask       ; with bit three of interrupt
-ld (mmu_imsk),A      ; mask.
-call annc_ack        ; Acknowledge ton.
+ld A,(mmu_imsk)      
+or A,bit0_mask
+ld (mmu_imsk),A
+call annc_ack
 check_ton_end:
 
-; Stop telemetry protocol. We set the number-four interrupt
-; period to zero and mask it.
+; Stop telemetry protocol. Mask interrupt one, which stops
+; the Telemetry Manager, so interrupt one will no longer
+; be generated.
 
 check_toff:
 ld A,(ccmdb)
 sub A,op_toff
 jp nz,check_toff_end
-ld A,0               ; Disable
-ld (mmu_i4p),A       ; timer interrupt.
-ld A,(mmu_imsk)      ; Mask timer interrupt
-and A,bit3_clr       ; with bit three of
-ld (mmu_imsk),A      ; interrupt mask.
-call annc_ack        ; Acknowledge xoff.
+ld A,(mmu_imsk)    
+and A,bit0_clr     
+ld (mmu_imsk),A    
+call annc_ack  
 check_toff_end:
 
 ; Identification request instruction. This instruction takes no
@@ -1572,10 +1549,8 @@ ld (mmu_ccr),A
 ; Configure control space registers.
 
 ld A,0             ; Prepare zeros to write.
-ld (mmu_acfg),A    ; Select AC coupling, Xoff.
+ld (mmu_acfg),A    ; Select AC coupling and Xoff.
 ld (mmu_dfr),A     ; Clear diagnostic flags
-ld (mmu_i3p),A     ; Disable interrupt timer three.
-ld (mmu_i4p),A     ; Disable interrupt timer four.
 ld (mmu_imsk),A    ; Mask all interrupts.
 ld A,0xFF          ; Prepare ones to write.
 ld (mmu_irst),A    ; Reset all interrupts.
@@ -1585,25 +1560,25 @@ ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
 
 ; Configure analog inputs.
 
-ld A,sps_256
+ld A,1
 ld (x1_xpd),A
 ld (x1_idx),A
 ld A,adc_shift2
 ld (mmu_x1cfg),A
 
-ld A,sps_256
+ld A,1
 ld (x2_xpd),A
 ld (x2_idx),A
 ld A,adc_shift2
 ld (mmu_x2cfg),A
 
-ld A,sps_256
+ld A,1
 ld (x3_xpd),A
 ld (x3_idx),A
 ld A,adc_shift2
 ld (mmu_x3cfg),A
 
-ld A,sps_256
+ld A,1
 ld (x4_xpd),A
 ld (x4_idx),A
 ld A,adc_shift2
@@ -1621,6 +1596,9 @@ ld (x4_xch),A
 ld A,0x00
 ld (dc_in),A
 ld (mmu_acfg),A
+
+ld A,sps_256
+ld (mmu_i0p),A
 
 ; Configure the TMP117 temperature sensor and its telemetry
 ; channel.

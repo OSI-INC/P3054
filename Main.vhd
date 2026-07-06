@@ -80,13 +80,11 @@
 
 -- V1.14 [06-JUL-26] Add sample counters for X1-X4 so the planned Telemetry 
 -- Controller can instruct the Sample Controller to skip an ADC or to sample
--- an ADC less frequently than 1024 SPS.
-
--- Build Telemetry Controller to turn on FCK and start the Sample controller 
--- at 1024 Hz. 
--- Add to Sample Transmitter the generation of a four-bit random number. 
--- Eliminate int3 timer and replace with a bit that is set by the Telemetry
--- Controller and cleared by the CPU.
+-- an ADC less frequently than 1024 SPS. Build Telemetry Manager to turn on 
+-- FCK and start the launch the Sample Controller at 1024 Hz. Add telemetry
+-- time shift generator to ADC Controller. Remove all interrupt bits except 
+-- bit 0. Generate int0 with Telemetry Manager. Enable Telemetry Manager with 
+-- mask bit 0.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -117,7 +115,7 @@ entity main is
 		: out std_logic_vector(4 downto 0));
 		
 -- Configuration and Calibration of Transmitter.
-	constant fck_divisor : integer := 25;
+	constant fck_divisor : integer := 22;
 	constant tx_channel_default : integer := 1;
 	constant frequency_step : integer := 1; 
 	constant default_frequency_low : integer := 5;
@@ -155,8 +153,7 @@ entity main is
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
 	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal (Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
-	constant mmu_i3p   : integer := 16#10#; -- Interrupt Timer Three Period (Write/Readback)
-	constant mmu_i4p   : integer := 16#11#; -- Interrupt Timer Four Period (Write/Readback)
+	constant mmu_i0p   : integer := 16#11#; -- Interrupt Zero Period (Write/Readback)
 	constant mmu_i2c00 : integer := 16#12#; -- i2c SDA=0 SCL=0 (Write/Readback)
 	constant mmu_i2c01 : integer := 16#13#; -- i2c SDA=0 SCL=1 (Write/Readback)
 	constant mmu_i2cA0 : integer := 16#14#; -- i2c SDA=A SCL=0 (Write/Readback)
@@ -175,7 +172,7 @@ end;
 
 architecture behavior of main is
 
--- Attributes to guide the compiler.
+-- Attributes that request signals to be retained instead of distributed.
 	attribute syn_keep : boolean;
 	attribute nomerge : string;
 
@@ -188,10 +185,12 @@ architecture behavior of main is
 	signal SWRST : boolean := false;
 	signal DACTIVE : boolean := true; 
 	
--- Ring Oscillator, Fast Clock, and Transmit Clock
-	signal TCK, FCK, CK, MCK : std_logic;
-	attribute syn_keep of TCK, FCK, CK, MCK : signal is true;
-	attribute nomerge of TCK, FCK, CK, MCK : signal is ""; 
+-- Ring Oscillator, Fast Clock, and Transmit Clock. We retain all these signals
+-- as nodes in the logic to stop the compiler from spreading them around, which
+-- makes the ring oscillator period vary from one compile to the next.
+	signal TCK, FCK, FCKEN, CK, MCK : std_logic;
+	attribute syn_keep of TCK, FCK, FCKEN, CK, MCK : signal is true;
+	attribute nomerge of TCK, FCK, FCKEN, CK, MCK : signal is ""; 
 
 -- Message Transmission. The syn_keep and nomerge reduce code size slightly.
 	signal TXI, -- Transmit Initiate
@@ -205,43 +204,64 @@ architecture behavior of main is
 	signal xmit_bits : std_logic_vector(15 downto 0);
 	signal tx_channel : integer range 0 to 255 := tx_channel_default;
 	signal frequency_low : integer range 0 to 31 := default_frequency_low;
+	signal transmit_shift : std_logic_vector(3 downto 0);
 		
--- Telemetry Manager, Sample Controller, and ADC Controller.
-	signal ADCCAL, -- Calibrate the Selected ADC
-		ADCRD, -- Initiate ADC Read
-		ADCBSY, -- ADC Busy
-		SCRUN, -- Sample Controller Run
+-- Telemetry Manager
+	signal TMINT, -- Telemetry Manager Interrupt
+		TMINTD -- TMINT Delayed
+		: boolean := false;
+	signal x1_index, x2_index, x3_index, x4_index : integer range 0 to 31;
+
+-- Sample Controller
+	signal SCRUN, -- Sample Controller Run
 		SCBSY -- Sample Controller Busy
 		: boolean := false;
+	attribute syn_keep of SCRUN, SCBSY : signal is true;
+	attribute nomerge of SCRUN, SCBSY : signal is "";  
+	signal x1_shift, x2_shift, x3_shift, x4_shift : std_logic_vector(2 downto 0);
+	signal x1_period, x2_period, x3_period, x4_period : std_logic_vector(4 downto 0);
+
+-- Sample Memory and Accumulator
 	signal SMWRADC, -- Sample Memory Write by ADC Controller
 		SMWRCPU, -- Sample Memory Write by CPU
 		ACCADD, -- Accumulator Add
 		ACCRST -- Accumulator Reset
 		: std_logic;
-	attribute syn_keep of ADCRD, ADCBSY, SCBSY, SCRUN : signal is true;
-	attribute nomerge of ADCRD, ADCBSY, SCBSY, SCRUN : signal is "";  
-	signal adc_data, smem_data, acc_data : std_logic_vector(17 downto 0);
-	signal smem_addr, adc_sel, sample_sel : std_logic_vector(1 downto 0);
+	attribute syn_keep of ACCADD, ACCRST : signal is true;
+	attribute nomerge of ACCADD, ACCRST : signal is "";  
+	signal smem_data, acc_data : std_logic_vector(17 downto 0);
+	signal smem_addr, sample_sel : std_logic_vector(1 downto 0);
+
+-- ADC Controller.
+	signal ADCCAL, -- Calibrate the Selected ADC
+		ADCRD, -- Initiate ADC Read
+		ADCBSY -- ADC Busy
+		: boolean := false;
+	attribute syn_keep of ADCRD, ADCBSY : signal is true;
+	attribute nomerge of ADCRD, ADCBSY : signal is "";  
+	signal adc_data : std_logic_vector(17 downto 0);
+	signal adc_sel : std_logic_vector(1 downto 0);
+	signal adc_shift : std_logic_vector(2 downto 0);
 	constant x1_sel : std_logic_vector(1 downto 0) := "00";
 	constant x2_sel : std_logic_vector(1 downto 0) := "01";
 	constant x3_sel : std_logic_vector(1 downto 0) := "10";
 	constant x4_sel : std_logic_vector(1 downto 0) := "11";
-	signal adc_shift : std_logic_vector(2 downto 0);
-	signal x1_shift, x2_shift, x3_shift, x4_shift : std_logic_vector(2 downto 0);
-	signal x1_period, x2_period, x3_period, x4_period : std_logic_vector(4 downto 0);
-	signal x1_index, x2_index, x3_index, x4_index : std_logic_vector(4 downto 0);
 
 -- I2C Bus Controller
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
 
--- Clock Control. The syn_keep and nomerge reduce code size slightly.
-	signal ENFCK : boolean; -- Enable Fast Clock
-	signal BOOST : boolean; -- Boost CPU Clock
-	attribute syn_keep of BOOST : signal is true;
-	attribute nomerge of BOOST : signal is "";
-	signal KEEPFCK : boolean; -- Keep FCK Running
-	signal SRCK, SSRCK : std_logic;
-	signal RCKLO : boolean;
+-- Clock Control. 
+	signal ENFCKCPU, -- Enable Fast Clock, from CPU
+		ENFCKTM, -- Enable Fast Clock, from Telemetry Manager
+		BOOST, -- Boost CPU Clock
+		KEEPFCK, -- Keep FCK Running
+		RCKLO -- RCK is LO
+		: boolean; 
+	signal SRCK, -- RCK Synchronized with FCK
+		SSRCK -- SRCK Delayed by one FCK Period
+		: std_logic; 
+	attribute syn_keep of BOOST, ENFCKCPU, ENFCKTM : signal is true;
+	attribute nomerge of BOOST, ENFCKCPU, ENFCKTM : signal is "";
 	
 -- Diagnostic Flag Register
 	signal df_reg : std_logic_vector(3 downto 0) := (others => '0');
@@ -270,8 +290,7 @@ architecture behavior of main is
 -- Interrupt Handler signals.
 	signal int_mask, int_bits, int_rst : std_logic_vector(7 downto 0);
 	signal int_rst_d, int_rst_s : std_logic_vector(7 downto 0);
-	signal int_period_3, int_period_4 : std_logic_vector(7 downto 0);
-	signal INTZ3, INTZ4 : boolean; -- Interrupt Counter Zero Flag
+	signal int_period_0 : std_logic_vector(4 downto 0);
 	
 -- Byte Receiver
 	signal RPS, -- Radio Frequency Power Synchronized
@@ -347,21 +366,19 @@ begin
 		end if;
 	end process;	
 
--- The Fast Clock process produces FCK when the microprocessor asserts Enable
--- Fast Clock (ENFCK). The fast clock must be running during sample transmission
--- and ADC readout. All I2C accesses run at 500 kHz with the CPU in boost, but
--- only 3.2 kHz with CPU in slow mode. The ring oscillator should be calibrated 
--- so that it produces FCK of 10 MHz.
+-- The Fast Clock process produces FCK when one of several flags are asserted.
+-- The ring oscillator should be calibrated so that it produces FCK of 10 MHz.
+	FCKEN <= to_std_logic(ENFCKCPU or ENFCKTM or KEEPFCK or CPUISRV);
 	Fast_Clock: entity ring_oscillator 
 		generic map (ring_len => fck_divisor)	
 		port map (
-			ENABLE => to_std_logic(ENFCK or KEEPFCK or CPUISRV), 
+			ENABLE => FCKEN, 
 			CK => FCK
 		);
 		
 -- The Millisecond Clock takes RCK, which is 32.768 kHz and divides
 -- by 32 to get 1.024 kHz, which we use as our millisecond clock.
-	Millisecond_Clock: process (RCK) is
+	Millisecond_Clock : process (RCK) is
 		variable mcnt : integer range 0 to 31;
 	begin
 		if falling_edge(RCK) then
@@ -462,7 +479,7 @@ begin
 						-- clocks, which the CPU can use for timing.
 						when mmu_sr => 
 							cpu_data_in(0) <= to_std_logic(CMDRDY); -- Command Ready
-							cpu_data_in(1) <= to_std_logic(ENFCK);  -- Fast Clock Enabled
+							cpu_data_in(1) <= to_std_logic(RPS);    -- Receive Power
 							cpu_data_in(2) <= MCK;                  -- Millisecond Clock
 							cpu_data_in(3) <= to_std_logic(TXA);    -- Transmit Active
 							cpu_data_in(4) <= to_std_logic(CPA);    -- Command Processor Active 
@@ -517,14 +534,13 @@ begin
 		if (RESET = '1') then
 			TXI <= false;
 			TXWP <= false;
-			ENFCK <= false;
+			ENFCKCPU <= false;
 			BOOST <= false;
 			tx_channel <= 0;
-			int_period_3 <= (others => '0');
-			int_period_4 <= (others => '0');
 			df_reg <= (others => '0');
 			int_mask <= (others => '0');
 			int_rst <= (others => '1');
+			int_period_0 <= (others => '0');
 			CPRST <= true;
 			DACTIVE <= false;
 			frequency_low <= default_frequency_low;
@@ -534,7 +550,6 @@ begin
 			DC <= '0';
 			ACCRST <= '1';
 			SMWRCPU	<= '1';
-			SCRUN <= false;
 			x1_period <= "00001";
 			x2_period <= "00001";
 			x3_period <= "00001";
@@ -549,7 +564,6 @@ begin
 			TXI <= false;
 			ACCRST <= '0';
 			SMWRCPU <= '0';
-			SCRUN <= false;
 			int_rst <= (others => '0');
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
@@ -591,9 +605,16 @@ begin
 						when mmu_rfc  => frequency_low <= to_integer(unsigned(cpu_data_out));
 						
 						-- The interrupt mask. Bits set to one enable their corresponding
-						-- interrupt request bits.
+						-- interrupt request bits and any peripheral machines that generate
+						-- interrupts.
 						when mmu_imsk => int_mask <= cpu_data_out;
 						
+						-- The interrupt-0 period. In this case we set a four-bit period
+						-- between 0 and 31 to indicate the transmit interrupt period in
+						-- multiples of 1/1024 s. When the period is zero, the interrupt
+						-- will take place every 32 periods, or at 32 Hz.
+						when mmu_i0p  => int_period_0 <= cpu_data_out(4 downto 0);
+
 						-- The interrupt reset register. Bits set to one reset their
 						-- corresponding interrupt request bits, signalling that the
 						-- interrupt has been serviced.
@@ -613,7 +634,7 @@ begin
 						-- CPU's interrupt service flag has been set by the CPU
 						-- to indicate that it is servicing an interrupt.
 						when mmu_ccr  => 
-							ENFCK <= (cpu_data_out(0) = '1');
+							ENFCKCPU <= (cpu_data_out(0) = '1');
 							BOOST <= (cpu_data_out(1) = '1');
 							
 						-- The diagnostic flag register. These bits can be routed
@@ -623,10 +644,6 @@ begin
 						-- The command processor reset bit: clears the command
 						-- FIFO and returns the command processor to its rest state.
 						when mmu_cpr  => CPRST <= true;
-						
-						-- The periods used by the interrupt timers.
-						when mmu_i3p  => int_period_3(7 downto 0) <= cpu_data_out;
-						when mmu_i4p  => int_period_4(7 downto 0) <= cpu_data_out;
 						
 						-- The I2C bit-banging interface. Each write to one of these
 						-- locations sets both SDA and SCL to one of zero, one, or
@@ -673,13 +690,11 @@ begin
 						-- sample select value provided that ADCBSY is not
 						-- asserted. The ACCRST and SMWRCPU strobes reset the
 						-- accumulator output and write the accumulator output
-						-- to the selected accumulated sample. The SCRUN strobe
-						-- starts the Sample Controller running.
+						-- to the selected accumulated sample.
 						when mmu_smcr =>
 							sample_sel <= cpu_data_out(1 downto 0);
 							ACCRST <= cpu_data_out(2);
 							SMWRCPU <= cpu_data_out(3);
-							SCRUN <= (cpu_data_out(4) = '1');
 							
 						-- We have four locations to describe how each input
 						-- is to be sample and shifted. The period tells us
@@ -687,26 +702,20 @@ begin
 						-- one, the Sample Controller will sample the input
 						-- at 1024 SPS. If zero, sampling of the input never
 						-- occurs. For another value, N, the Sample Controller
-						-- samples the input one in N times it runs. We store 
-						-- the period in memory and we initialize an index 
-						-- as well. The shift is the number of left-shifts 
-						-- that the ADC Controller should apply to samples 
-						-- obtained from an input.
+						-- samples the input one in N times it runs. The shift 
+						-- is the number of left-shifts that the ADC Controller 
+						-- should apply to samples obtained from an input.
 						when mmu_x1cfg =>
 							x1_period <= cpu_data_out(4 downto 0);
-							x1_index <= cpu_data_out(4 downto 0);
 							x1_shift <= cpu_data_out(7 downto 5);
 						when mmu_x2cfg =>
 							x2_period <= cpu_data_out(4 downto 0);
-							x2_index <= cpu_data_out(4 downto 0);
 							x2_shift <= cpu_data_out(7 downto 5);
 						when mmu_x3cfg =>
 							x3_period <= cpu_data_out(4 downto 0);
-							x3_index <= cpu_data_out(4 downto 0);
 							x3_shift <= cpu_data_out(7 downto 5);
 						when mmu_x4cfg =>
 							x4_period <= cpu_data_out(4 downto 0);
-							x4_index <= cpu_data_out(4 downto 0);
 							x4_shift <= cpu_data_out(7 downto 5);
 
 						-- For all other addresses, we have no bits to set.
@@ -822,7 +831,6 @@ begin
 -- period of each timer by writing to locations in the CPU control space. If we want
 -- the counter to have period N ticks, we write value N-1 to the period registers.
 	Interrupt_Controller : process (RCK, int_rst) is
-	variable counter_3, counter_4 : integer range 0 to 255;
 	begin
 	
 		-- Synchronize the int_rst bits with RCK. Our interrupt counters run off RCK, 
@@ -832,83 +840,42 @@ begin
 		-- asynchronous assertion of reset, but not asynchronous unassertion of reset. 
 		-- We must make the unassertion synchronous with the clock that drives the register.
 	
-		-- Interrupt Three Reset
-		if int_rst(2) = '1' then
-			int_rst_d(2)  <= '1';
-			int_rst_s(2) <= '1';
+		-- Interrupt One Reset
+		if int_rst(0) = '1' then
+			int_rst_d(0)  <= '1';
+			int_rst_s(0) <= '1';
 		elsif falling_edge(RCK) then
-			int_rst_d(2)  <= '0';
-			int_rst_s(2) <= int_rst_d(2);
+			int_rst_d(0)  <= '0';
+			int_rst_s(0) <= int_rst_d(0);
 		end if;
-		
-		-- Interrupt Four Reset
-		if int_rst(3) = '1' then
-			int_rst_d(3) <= '1';
-			int_rst_s(3) <= '1';
-		elsif falling_edge(RCK) then
-			int_rst_d(3) <= '0';
-			int_rst_s(3) <= int_rst_d(3);
-		end if;	
 		
 		-- The interrupt timers run all the time, counting down from their period value
 		-- to zero. The only way to stop them counting is to set their period value to
 		-- zero so that they stick at zero. Just disabling the interrupt does not stop 
 		-- the counter.
 
-		-- Interrupt Timer Three: an eight bit repeating clock. Counts RCK.
+		-- Interrupt One: Set by a rising edge on TMINT from the Telemetry Manager.
 		if rising_edge(RCK) then
-			if (counter_3 = 0) then
-				counter_3 := to_integer(unsigned(int_period_3));
-			else
-				counter_3 := counter_3 - 1;
-			end if;
+			TMINTD <= TMINT;
 		end if;
-
-		-- Interrupt Timer Four: an eight-bit repeating clock. Counts RCK.
-		if rising_edge(RCK) then
-			if (counter_4 = 0) then
-				counter_4 := to_integer(unsigned(int_period_4));
-			else
-				counter_4 := counter_4 - 1;
-			end if;
-		end if;
-
+		
 		-- Using the interrupt reset bits that we synchronized with RCK, we 
-		-- reset the interrupt bits. Otherwise, we set the interrupt timer
-		-- bit when the timer reaches zero.
+		-- reset the interrupt bits. Otherwise, we set the interrupt bits
+		-- either with some external flag or when a timer reaches zero.
 				
-		-- Timer Three Control
-		if (int_rst_s(2) = '1') then
-			int_bits(2) <= '0';
-			INTZ3 <= true;
+		-- Interrupt One Control
+		if (int_rst_s(0) = '1') then
+			int_bits(0) <= '0';
 		elsif rising_edge(RCK) then
-			INTZ3 <= (counter_3 = 0);
-			if ((counter_3 = 0) and (not INTZ3)) then
-				int_bits(2) <= '1';
+			if (TMINT and (not TMINTD)) then
+				int_bits(0) <= '1';
 			end if;
 		end if;
 		
-		-- Timer Four Control
-		if (int_rst_s(3) = '1') then
-			int_bits(3) <= '0';
-			INTZ4 <= true;
-		elsif rising_edge(RCK) then
-			INTZ4 <= (counter_4 = 0);
-			if ((counter_4 = 0) and (not INTZ4)) then
-				int_bits(3) <= '1';
-			end if;
-		end if;
-
 		-- We disable the remaining interrupt lines.
-		for i in 0 to 1 loop
+		for i in 1 to 7 loop
 			int_bits(i) <= '0';
-		end loop;
-		for i in 4 to 7 loop
-			int_bits(i) <= '0';
-		end loop;
-		
-		-- We generate an interrupt if any one interrupt bit is 
-		-- set and unmasked.
+		end loop;		
 	end process;
 
 -- The Interrupt Generator takes the interrupt bits and the interrupt mask
@@ -920,6 +887,97 @@ begin
 			CPUIRQ <= false;
 		elsif falling_edge(CK) then
 			CPUIRQ <= (int_bits and int_mask) /= "00000000";
+		end if;
+	end process;
+	
+-- The Telemetry Manager organises sampling of the inputs X1-X4 a
+-- frequency that is an integer fraction of 1024 SPS and generates
+-- the transmit interrupt offset from sampling by a random number
+-- of RCK periods. The manager runs off RCK, but turns on FCK for
+-- the Sample Controller that it uses to perform sampling.
+	Telemetry_Manager : process (RCK) is 
+		constant tm_max : integer := 31;
+		constant tm_idle : integer := tm_max;
+		constant tm_dec : integer := tm_max - 2;
+		constant tm_sample : integer := tm_max - 4;
+		variable state, next_state : integer range 0 to tm_max := 0;
+		variable TMRUN : boolean;
+		variable tx_index : integer range 0 to 31;
+		
+	begin
+		if RESET = '1' then
+			ENFCKTM <= false;
+			SCRUN <= false;
+			TMINT <= false;
+			TMRUN := false;
+			state := tm_idle;
+			x1_index <= 0;
+			x2_index <= 0;
+			x3_index <= 0;
+			x4_index <= 0;
+			tx_index := 0;
+		elsif rising_edge(RCK) then
+			TMRUN := (int_mask(0) = '1');
+			
+			if not TMRUN then
+				next_state := tm_idle;
+				x1_index <= to_integer(unsigned(x1_period));
+				x2_index <= to_integer(unsigned(x2_period));
+				x3_index <= to_integer(unsigned(x3_period));
+				x4_index <= to_integer(unsigned(x4_period));
+				tx_index := to_integer(unsigned(int_period_0));
+			else
+				next_state := state + 1;
+			end if;
+			
+			if (state = unsigned(transmit_shift)) then
+				if tx_index = 1 then
+					ENFCKTM <= false;
+					SCRUN <= false;
+					TMINT <= true;
+				else
+					ENFCKTM <= false;
+					SCRUN <= false;
+					TMINT <= false;
+				end if;
+			elsif (state = tm_sample) then
+				ENFCKTM <= true;
+				SCRUN <= true;				TMINT <= false;
+			elsif (state = tm_dec) then
+				ENFCKTM <= false;
+				SCRUN <= false;
+				TMINT <= false;
+				if x1_index <= 1 then
+					x1_index <= to_integer(unsigned(x1_period));
+				else
+					x1_index <= x1_index-1;
+				end if;
+				if x2_index <= 1 then
+					x2_index <= to_integer(unsigned(x2_period));
+				else
+					x2_index <= x2_index-1;
+				end if;
+				if x3_index <= 1 then
+					x3_index <= to_integer(unsigned(x3_period));
+				else
+					x3_index <= x3_index-1;
+				end if;
+				if x4_index <= 1 then
+					x4_index <= to_integer(unsigned(x4_period));
+				else
+					x4_index <= x4_index-1;
+				end if;
+				if tx_index = 1 then
+					tx_index := to_integer(unsigned(int_period_0));
+				else
+					tx_index := tx_index - 1;
+				end if;
+			else
+				ENFCKTM <= false;
+				SCRUN <= false;
+				TMINT <= false;
+			end if;
+			state := next_state;
 		end if;
 	end process;
 
@@ -994,7 +1052,7 @@ begin
 			adc_sel <= x1_sel;
 			state := sc_idle;
 		elsif falling_edge(FCK) then
-			if (state =sc_idle) then 
+			if (state = sc_idle) then 
 				adc_sel <= x1_sel;
 				adc_shift <= x1_shift;
 				ADCRD <= false;
@@ -1006,7 +1064,7 @@ begin
 			elsif (state = x1_start) then
 				adc_sel <= x1_sel;
 				adc_shift <= x1_shift;
-				if (unsigned(x1_index) = 1) then
+				if x1_index = 1 then
 					ADCRD <= true;
 					if ADCBSY then
 						next_state := x1_wait;	
@@ -1028,7 +1086,7 @@ begin
 				end if;			elsif (state = x2_start) then
 				adc_sel <= x2_sel;
 				adc_shift <= x2_shift;
-				if (unsigned(x2_index) = 1) then
+				if x2_index = 1 then
 					ADCRD <= true;
 					if ADCBSY then
 						next_state := x2_wait;	
@@ -1051,7 +1109,7 @@ begin
 			elsif (state = x3_start) then
 				adc_sel <= x3_sel;
 				adc_shift <= x3_shift;
-				if (unsigned(x3_index) = 1) then
+				if x3_index = 1 then
 					ADCRD <= true;
 					if ADCBSY then
 						next_state := x3_wait;	
@@ -1074,7 +1132,7 @@ begin
 			elsif (state = x4_start) then
 				adc_sel <= x4_sel;
 				adc_shift <= x4_shift;
-				if (unsigned(x4_index) = 1) then
+				if x4_index = 1 then
 					ADCRD <= true;
 					if ADCBSY then
 						next_state := x4_wait;	
@@ -1114,14 +1172,18 @@ begin
 
 -- ADC Controller starts reading one of the 14-bit ADCs when it detects 
 -- ADC Read (ADCRD). It waits until ADCRD is unasserted before returning
--- to its rest state. The controller shifts 14-bit samples to the left
--- up to four place, as directed by adc_shift. After shifting, the 
--- controller adds the sample to the accumulator, and writes the output
--- of the accumulator to the sample memory. The ADC it selects
--- for readout is the one specified by adc_sel. If ADCRD is accompanied 
--- by ADCCAL, the ADC Controller performs a calibration read of twenty-four 
--- bits, with no shifting, no accumulation, and no storage. This calibration-- read will cause the ADC to self-calibrate provided that the calibration 
--- access is the first one after power-up. 
+-- to its rest state. When the controller has acquired the 14-bit sample,
+-- it updates the transmit time shift value using a linear shift 
+-- register that will, if the ADC is working properly, generate a random
+-- number for transmit scatter. After that, the controller shifts 14-bit 
+-- samples to the left from zero to four place, as directed by adc_shift. 
+-- After shifting, the controller adds the sample to the accumulator, and 
+-- writes the output of the accumulator to the sample memory. The ADC it 
+-- selects for readout is the one specified by adc_sel. If ADCRD is 
+-- accompanied by ADCCAL, the ADC Controller performs a calibration read 
+-- of twenty-four bits, with no shifting, no accumulation, and no storage. 
+-- This calibration read will cause the ADC to self-calibrate provided that 
+-- the calibration access is the first one after power-up. 
 	ADC_Controller : process (RESET, FCK) is
 		variable state, next_state : integer range 0 to 63 := 0;
 		constant calib_end : integer := 50;
@@ -1135,6 +1197,7 @@ begin
 			ACCADD <= '0';
 			SMWRADC <= '0';
 			adc_data <= (others => '0');
+			transmit_shift <= (others => '1');
 			
 		-- The ADC Contoller proceeds through states so as initiate a conversion,
 		-- read out one zero, fourteen data bits, and three trailing zeros. If
@@ -1186,6 +1249,13 @@ begin
 					adc_data(17 downto 1) <= adc_data(16 downto 0);
 					adc_data(0) <= '0';
 				end if;
+			end if;
+			
+			if (state = 31) then
+				transmit_shift(3) <= adc_data(0) xor transmit_shift(0);
+				transmit_shift(2) <= transmit_shift(3) xor transmit_shift(0);
+				transmit_shift(1) <= transmit_shift(2);
+				transmit_shift(0) <= transmit_shift(1);
 			end if;
 			
 			ACCADD <= to_std_logic((state = read_end - 1) and (not ADCCAL));
@@ -1701,5 +1771,5 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(0);
+	TP <= to_std_logic((ACCADD ='1') and (adc_sel = "00"));
 end behavior;
