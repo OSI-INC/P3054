@@ -75,7 +75,18 @@
 -- shifts it in accordance with the Accumulation Shift bits, adds it to the 
 -- output of the Sample Memory, and loads the sum back into the same location in
 -- sample memory. Eliminate direct readout of the ADC samples. Add ACCRST and 
--- SMWRCPU so we can clear values in the sample memory.
+-- SMWRCPU so we can clear values in the sample memory. Build Sample Controller
+-- to direct the ADC Controller to read out the ADCs one after another.
+
+-- V1.14 [06-JUL-26] Add sample counters for X1-X4 so the planned Telemetry 
+-- Controller can instruct the Sample Controller to skip an ADC or to sample
+-- an ADC less frequently than 1024 SPS.
+
+-- Build Telemetry Controller to turn on FCK and start the Sample controller 
+-- at 1024 Hz. 
+-- Add to Sample Transmitter the generation of a four-bit random number. 
+-- Eliminate int3 timer and replace with a bit that is set by the Telemetry
+-- Controller and cleared by the CPU.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -215,10 +226,10 @@ architecture behavior of main is
 	constant x2_sel : std_logic_vector(1 downto 0) := "01";
 	constant x3_sel : std_logic_vector(1 downto 0) := "10";
 	constant x4_sel : std_logic_vector(1 downto 0) := "11";
-	signal adc_shift, x1_shift, x2_shift, x3_shift, 
-		x4_shift : std_logic_vector(2 downto 0);
-	signal x1_period, x2_period, x3_period, 
-		x4_period : std_logic_vector(4 downto 0);
+	signal adc_shift : std_logic_vector(2 downto 0);
+	signal x1_shift, x2_shift, x3_shift, x4_shift : std_logic_vector(2 downto 0);
+	signal x1_period, x2_period, x3_period, x4_period : std_logic_vector(4 downto 0);
+	signal x1_index, x2_index, x3_index, x4_index : std_logic_vector(4 downto 0);
 
 -- I2C Bus Controller
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
@@ -524,7 +535,10 @@ begin
 			ACCRST <= '1';
 			SMWRCPU	<= '1';
 			SCRUN <= false;
-			sample_sel <= (others => '0');
+			x1_period <= "00001";
+			x2_period <= "00001";
+			x3_period <= "00001";
+			x4_period <= "00001";
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
 		-- and transmit activity. Some signals we assert only for one CK period, and 
@@ -667,28 +681,38 @@ begin
 							SMWRCPU <= cpu_data_out(3);
 							SCRUN <= (cpu_data_out(4) = '1');
 							
-						-- We have four locations to store sampling configuration
-						-- for each of the four inputs. The period is the number
-						-- of sample interrupts between sample transmission. The 
-						-- shift is the number of left-shifts that should occur
-						-- in the ADC Controller.
+						-- We have four locations to describe how each input
+						-- is to be sample and shifted. The period tells us
+						-- how often to sample the input. When the period is
+						-- one, the Sample Controller will sample the input
+						-- at 1024 SPS. If zero, sampling of the input never
+						-- occurs. For another value, N, the Sample Controller
+						-- samples the input one in N times it runs. We store 
+						-- the period in memory and we initialize an index 
+						-- as well. The shift is the number of left-shifts 
+						-- that the ADC Controller should apply to samples 
+						-- obtained from an input.
 						when mmu_x1cfg =>
 							x1_period <= cpu_data_out(4 downto 0);
+							x1_index <= cpu_data_out(4 downto 0);
 							x1_shift <= cpu_data_out(7 downto 5);
 						when mmu_x2cfg =>
 							x2_period <= cpu_data_out(4 downto 0);
+							x2_index <= cpu_data_out(4 downto 0);
 							x2_shift <= cpu_data_out(7 downto 5);
 						when mmu_x3cfg =>
 							x3_period <= cpu_data_out(4 downto 0);
+							x3_index <= cpu_data_out(4 downto 0);
 							x3_shift <= cpu_data_out(7 downto 5);
 						when mmu_x4cfg =>
 							x4_period <= cpu_data_out(4 downto 0);
+							x4_index <= cpu_data_out(4 downto 0);
 							x4_shift <= cpu_data_out(7 downto 5);
 
-						-- For all other addresses, we have not bits to set.
-						-- Note that the shadow RAM is recording all writes
-						-- to these addresses, and will respond to reads for
-						-- which no readable register is implemented.
+						-- For all other addresses, we have no bits to set.
+						-- he shadow RAM is recording all writes to these 
+						-- addresses, and will respond to reads for which 
+						-- no readable register is implemented.
 						when others => null;
 					end case;
 				end if;
@@ -941,7 +965,15 @@ begin
 		Reset => ACCRST
 		);
 
--- The Sample Controller. 
+-- The Sample Controller organizes sampling of all four inputs X1-X4 using
+-- the four converters ADC1-ADC4. It runs off FCK. It starts running when-- it sees the ACRUN flag set. It will not return to its idle state until
+-- this flag is cleared. It obtains a sample from each ADC for which the
+-- period index is equal to one. The Sample Controller does not change 
+-- the period index. That task is left to the Telemetry Controller. Any
+-- input for which the index is not one will be skipped over. The Sample
+-- Controller sets the adc_sel and adc_shift arrays to make sure that
+-- the sample is shifted the correct number of places to the left and then
+-- stored in the correct location in the sample memory.
 	Sample_Controller : process (FCK) is
 	variable state, next_state : integer range 0 to 15 := 0;
 	constant sc_idle : integer := 0;
@@ -964,8 +996,8 @@ begin
 		elsif falling_edge(FCK) then
 			if (state =sc_idle) then 
 				adc_sel <= x1_sel;
-				ADCRD <= false;
 				adc_shift <= x1_shift;
+				ADCRD <= false;
 				if SCRUN then
 					next_state := x1_start;
 				else
@@ -973,34 +1005,44 @@ begin
 				end if;
 			elsif (state = x1_start) then
 				adc_sel <= x1_sel;
-				ADCRD <= true;
 				adc_shift <= x1_shift;
-				if ADCBSY then
-					next_state := x1_wait;	
-				else
-					next_state := x1_start;
+				if (unsigned(x1_index) = 1) then
+					ADCRD <= true;
+					if ADCBSY then
+						next_state := x1_wait;	
+					else
+						next_state := x1_start;
+					end if;
+				else 
+					ADCRD <= false;
+					next_state := x2_start;
 				end if;
 			elsif (state = x1_wait) then
 				adc_sel <= x1_sel;
-				ADCRD <= false;
 				adc_shift <= x1_shift;
+				ADCRD <= false;
 				if ADCBSY then
 					next_state := x1_wait;
 				else
 					next_state := x2_start;
 				end if;			elsif (state = x2_start) then
 				adc_sel <= x2_sel;
-				ADCRD <= true;
 				adc_shift <= x2_shift;
-				if ADCBSY then
-					next_state := x2_wait;
-				else
-					next_state := x2_start;
+				if (unsigned(x2_index) = 1) then
+					ADCRD <= true;
+					if ADCBSY then
+						next_state := x2_wait;	
+					else
+						next_state := x2_start;
+					end if;
+				else 
+					ADCRD <= false;
+					next_state := x3_start;
 				end if;
 			elsif (state = x2_wait) then
 				adc_sel <= x2_sel;
-				ADCRD <= false;
 				adc_shift <= x2_shift;
+				ADCRD <= false;
 				if ADCBSY then
 					next_state := x2_wait;
 				else
@@ -1008,17 +1050,22 @@ begin
 				end if;
 			elsif (state = x3_start) then
 				adc_sel <= x3_sel;
-				ADCRD <= true;
 				adc_shift <= x3_shift;
-				if ADCBSY then
-					next_state := x3_wait;
-				else
-					next_state := x3_start;
+				if (unsigned(x3_index) = 1) then
+					ADCRD <= true;
+					if ADCBSY then
+						next_state := x3_wait;	
+					else
+						next_state := x3_start;
+					end if;
+				else 
+					ADCRD <= false;
+					next_state := x4_start;
 				end if;
 			elsif (state = x3_wait) then
 				adc_sel <= x3_sel;
-				ADCRD <= false;
 				adc_shift <= x3_shift;
+				ADCRD <= false;
 				if ADCBSY then
 					next_state := x3_wait;
 				else
@@ -1026,17 +1073,22 @@ begin
 				end if;
 			elsif (state = x4_start) then
 				adc_sel <= x4_sel;
-				ADCRD <= true;
 				adc_shift <= x4_shift;
-				if ADCBSY then
-					next_state := x4_wait;
-				else
-					next_state := x4_start;
+				if (unsigned(x4_index) = 1) then
+					ADCRD <= true;
+					if ADCBSY then
+						next_state := x4_wait;	
+					else
+						next_state := x4_start;
+					end if;
+				else 
+					ADCRD <= false;
+					next_state := sc_wait;
 				end if;
 			elsif (state = x4_wait) then
 				adc_sel <= x4_sel;
-				ADCRD <= false;
 				adc_shift <= x4_shift;
+				ADCRD <= false;
 				if ADCBSY then
 					next_state := x4_wait;
 				else

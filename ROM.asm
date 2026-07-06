@@ -292,11 +292,11 @@ const bma_sdly        2 ; Startup delay in milliseconds
 
 ; Constants: for use with the Sample Controller.
 
-const adc_shift0   0x00 ; No Shift Left
-const adc_shift1   0x20 ; One Shift Left
-const adc_shift2   0x40 ; Two Shifts Left
-const adc_shift3   0x60 ; Three Shifts Left
-const adc_shift4   0x80 ; Four Shifts Left
+const adc_shift0   0x01 ; No Shift Left, Sample 1024 SPS
+const adc_shift1   0x21 ; One Shift Left, Sample 1024 SPS
+const adc_shift2   0x41 ; Two Shifts Left, Sample 1024 SPS
+const adc_shift3   0x61 ; Three Shifts Left, Sample 1024 SPS
+const adc_shift4   0x81 ; Four Shifts Left, Sample 1024 SPS
 const acc_rst      0x04 ; Reset the Accumulator
 const sm_wrcpu     0x08 ; Write to Sample Memory
 const sc_run       0x10 ; Sample Controller Run
@@ -1588,25 +1588,25 @@ ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
 ld A,sps_256
 ld (x1_xpd),A
 ld (x1_idx),A
-or A,adc_shift2
+ld A,adc_shift2
 ld (mmu_x1cfg),A
 
 ld A,sps_256
 ld (x2_xpd),A
 ld (x2_idx),A
-or A,adc_shift2
+ld A,adc_shift2
 ld (mmu_x2cfg),A
 
 ld A,sps_256
 ld (x3_xpd),A
 ld (x3_idx),A
-or A,adc_shift2
+ld A,adc_shift2
 ld (mmu_x3cfg),A
 
 ld A,sps_256
 ld (x4_xpd),A
 ld (x4_idx),A
-or A,adc_shift2
+ld A,adc_shift2
 ld (mmu_x4cfg),A
 
 ld A,33
