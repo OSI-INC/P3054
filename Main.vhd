@@ -890,11 +890,11 @@ begin
 		end if;
 	end process;
 	
--- The Telemetry Manager organises sampling of the inputs X1-X4 a
+-- The Telemetry Manager organizes sampling of the inputs X1-X4 a
 -- frequency that is an integer fraction of 1024 SPS and generates
 -- the transmit interrupt offset from sampling by a random number
 -- of RCK periods. The manager runs off RCK, but turns on FCK for
--- the Sample Controller that it uses to perform sampling.
+-- the Sample Controller.
 	Telemetry_Manager : process (RCK) is 
 		constant tm_max : integer := 31;
 		constant tm_idle : integer := tm_max;
@@ -927,7 +927,11 @@ begin
 				x4_index <= to_integer(unsigned(x4_period));
 				tx_index := to_integer(unsigned(int_period_0));
 			else
-				next_state := state + 1;
+				if state = tm_max then
+					next_state := 0;
+				else 
+					next_state := state + 1;
+				end if;
 			end if;
 			
 			if (state = unsigned(transmit_shift)) then
@@ -942,7 +946,8 @@ begin
 				end if;
 			elsif (state = tm_sample) then
 				ENFCKTM <= true;
-				SCRUN <= true;				TMINT <= false;
+				SCRUN <= true;
+				TMINT <= false;
 			elsif (state = tm_dec) then
 				ENFCKTM <= false;
 				SCRUN <= false;
@@ -1024,7 +1029,8 @@ begin
 		);
 
 -- The Sample Controller organizes sampling of all four inputs X1-X4 using
--- the four converters ADC1-ADC4. It runs off FCK. It starts running when-- it sees the ACRUN flag set. It will not return to its idle state until
+-- the four converters ADC1-ADC4. It runs off FCK. It starts running when
+-- it sees the ACRUN flag set. It will not return to its idle state until
 -- this flag is cleared. It obtains a sample from each ADC for which the
 -- period index is equal to one. The Sample Controller does not change 
 -- the period index. That task is left to the Telemetry Controller. Any
@@ -1083,7 +1089,8 @@ begin
 					next_state := x1_wait;
 				else
 					next_state := x2_start;
-				end if;			elsif (state = x2_start) then
+				end if;
+			elsif (state = x2_start) then
 				adc_sel <= x2_sel;
 				adc_shift <= x2_shift;
 				if x2_index = 1 then

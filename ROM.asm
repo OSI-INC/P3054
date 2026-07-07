@@ -757,14 +757,14 @@ ld A,tx_delay
 dly A
 int_xmit_nvm_done:
 
-; Sample and transmit X1-X4 input ADCs. 
+; Transmit accumulated X1-X4 samples.
 
 int_xmit_x:
 
-; The first ADC is X1. We store the address of its transmit
+; The first input is X1. We store the address of its transmit
 ; period in IX. We will be incrementing and decrementing IX
-; to access the ADC control variables. We will keep in B
-; the sample memory address of this input's sample.
+; to access the sample control variables. We will keep in B
+; the sample memory address of this input.
  
 ld IX,x1_xpd
 ld A,sm_x1
@@ -785,10 +785,9 @@ ld A,(IX)
 add A,0
 jp z,int_xmit_x_next
 
-; Decrement the sample index. If it is not yet zero, we are 
-; not ready to transmit. Move on to the next ADC, but first
-; we decrement IX so it goes back to pointing to the transmit
-; period.
+; Decrement the sample index. If it is not yet zero after the
+; decrement, we are not ready to transmit. Decrement IX so it
+; points to the transmit period and move on to the next input.
 
 inc IX ; Sample Index
 ld A,(IX)
@@ -856,15 +855,15 @@ dec IX ; Sample Period
 
 int_xmit_x_next:
 
-; Check thed ADC index. If it is equal to sample memory address
-; of the final ADC, we are done with all of them.
+; Check the sample address. If it is equal to address of the final
+; input we are done with all of them.
 
 ld A,sm_x4
 sub A,B
 jp z,int_xmit_x_done
 
-; Prepare for the next ADC. We increment the ADC index and move
-; IX from this input's period to the next input's period.
+; Prepare for the next input. We increment the sample address
+; and move IX from this input's period to the next input's period.
 
 inc B
 inc IX
