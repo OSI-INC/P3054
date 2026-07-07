@@ -197,12 +197,6 @@ const ms_tick        33 ; One millisecond in RCK periods
 const int_period     31 ; Interrupt period in RCK periods
 const lon_ms         20 ; Lamp on time in milliseconds
 const loff_ms       200 ; Lamp off time in milliseconds
-const sps_0           0 ; Disable a channel.
-const sps_64         16 ; 1/64 s in interrupt periods
-const sps_128         8 ; 1/128 s in interrupt periods
-const sps_256         4 ; 1/256 s in interrupt periods
-const sps_512         2 ; 1/512 s in interrupt periods
-const sps_1024        1 ; 1/1024 s in interrupt periods
 const spd_500ms       2 ; 1/2 s in 256 * interrupt period
 const spd_1000ms      4 ; 1 s in 256 * interrupt period
 const spd_2000ms      8 ; 2 s in 256 * interrupt period
@@ -286,11 +280,12 @@ const bma_sdly        2 ; Startup delay in milliseconds
 
 ; Constants: for use with the Sample Controller.
 
-const adc_shift0   0x01 ; No Shift Left, Sample 1024 SPS
-const adc_shift1   0x21 ; One Shift Left, Sample 1024 SPS
-const adc_shift2   0x41 ; Two Shifts Left, Sample 1024 SPS
-const adc_shift3   0x61 ; Three Shifts Left, Sample 1024 SPS
-const adc_shift4   0x81 ; Four Shifts Left, Sample 1024 SPS
+const adc_shift0   0x00 ; No Shift Left
+const adc_shift1   0x01 ; One Shift Left
+const adc_shift2   0x02 ; Two Shifts Left
+const adc_shift3   0x03 ; Three Shifts Left
+const adc_shift4   0x04 ; Four Shifts Left
+const adc_x4ss     0x0C ; Four Shifts Left, Single Sample
 const acc_rst      0x04 ; Reset the Accumulator
 const sm_wrcpu     0x08 ; Write to Sample Memory
 const sm_x1        0x00 ; X1 Sample Memory Location
@@ -1562,41 +1557,41 @@ ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
 ld A,1
 ld (x1_xpd),A
 ld (x1_idx),A
-ld A,adc_shift2
+ld A,adc_shift3
 ld (mmu_x1cfg),A
 
-ld A,1
+ld A,2
 ld (x2_xpd),A
 ld (x2_idx),A
 ld A,adc_shift2
 ld (mmu_x2cfg),A
 
-ld A,1
+ld A,4
 ld (x3_xpd),A
 ld (x3_idx),A
-ld A,adc_shift2
+ld A,adc_shift1
 ld (mmu_x3cfg),A
 
-ld A,1
+ld A,8
 ld (x4_xpd),A
 ld (x4_idx),A
-ld A,adc_shift2
+ld A,adc_x4ss
 ld (mmu_x4cfg),A
 
-ld A,33
+ld A,69
 ld (x1_xch),A  
-ld A,34
+ld A,70
 ld (x2_xch),A
-ld A,35
+ld A,71
 ld (x3_xch),A
-ld A,36
+ld A,72
 ld (x4_xch),A
 
-ld A,0x00
+ld A,0x01
 ld (dc_in),A
 ld (mmu_acfg),A
 
-ld A,sps_256
+ld A,2
 ld (mmu_i0p),A
 
 ; Configure the TMP117 temperature sensor and its telemetry
