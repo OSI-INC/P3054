@@ -183,7 +183,6 @@ architecture behavior of main is
 	attribute nomerge of RESET : signal is "";
 	signal SFLAG, STDBY : std_logic;
 	signal SWRST : boolean := false;
-	signal DACTIVE : boolean := true; 
 	
 -- Ring Oscillator, Fast Clock, and Transmit Clock. We retain all these signals
 -- as nodes in the logic to stop the compiler from spreading them around, which
@@ -202,8 +201,8 @@ architecture behavior of main is
 	attribute syn_keep of TXI, TXA : signal is true;
 	attribute nomerge of TXI, TXA : signal is "";  
 	signal xmit_bits : std_logic_vector(15 downto 0);
-	signal tx_channel : integer range 0 to 255 := tx_channel_default;
-	signal frequency_low : integer range 0 to 31 := default_frequency_low;
+	signal tx_channel : integer range 0 to 255;
+	signal frequency_low : integer range 0 to 31;
 	signal transmit_shift : std_logic_vector(3 downto 0);
 		
 -- Telemetry Manager
@@ -264,7 +263,7 @@ architecture behavior of main is
 	attribute nomerge of BOOST, ENFCKCPU, ENFCKTM : signal is "";
 	
 -- Diagnostic Flag Register
-	signal df_reg : std_logic_vector(3 downto 0) := (others => '0');
+	signal df_reg : std_logic_vector(3 downto 0);
 
 -- Program Memory Signals
 	signal prog_data : std_logic_vector(7 downto 0); -- ROM Data
@@ -536,13 +535,12 @@ begin
 			TXWP <= false;
 			ENFCKCPU <= false;
 			BOOST <= false;
-			tx_channel <= 0;
+			tx_channel <= tx_channel_default;
 			df_reg <= (others => '0');
 			int_mask <= (others => '0');
 			int_rst <= (others => '1');
 			int_period_0 <= (others => '0');
 			CPRST <= true;
-			DACTIVE <= false;
 			frequency_low <= default_frequency_low;
 			SDA <= 'Z';
 			SCL <= '1';
@@ -927,14 +925,14 @@ begin
 				x4_index <= to_integer(unsigned(x4_period));
 				tx_index := to_integer(unsigned(int_period_0));
 			else
-				if state = tm_max then
+				if state = tm_idle then
 					next_state := 0;
-				else 
+				else
 					next_state := state + 1;
 				end if;
 			end if;
 			
-			if (state = unsigned(transmit_shift)) then
+			if (state = to_integer(unsigned(transmit_shift))) then
 				if tx_index = 1 then
 					ENFCKTM <= false;
 					SCRUN <= false;
@@ -982,6 +980,7 @@ begin
 				SCRUN <= false;
 				TMINT <= false;
 			end if;
+			
 			state := next_state;
 		end if;
 	end process;
@@ -1053,7 +1052,7 @@ begin
 	
 	begin
 		if RESET = '1'  then
-			ADCCAL <= false;
+			ADCCAL <= true;
 			ADCRD <= false;
 			adc_sel <= x1_sel;
 			state := sc_idle;
