@@ -7,6 +7,7 @@
 -- fck_divisor in firmware. Compile for a 31-gate ring, set route priority on all
 -- thirty-one gates, then re-compile for fewer gates and ignore warnings. Adapt
 -- the P3041 Stimulus Controller for our LED output. In software, we have disabled
+-- the P3041 Stimulus Controller for our LED output. In software, we have disabled
 -- the Clock Calibration call. Tested and fully functional without any readout of
 -- sensors or converters. Compiled size 1206 LUTs.
 
@@ -86,6 +87,8 @@
 -- bit 0. Generate int0 with Telemetry Manager. Enable Telemetry Manager with 
 -- interrupt mask bit0. Add X4SS for "Input X4 Single Sample" to allow 
 -- sampling of chaotic signals without low-pass filtering.
+
+-- V1.15 [07-JUL-26] Working on software-adjustable ring oscillator.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -221,7 +224,7 @@ architecture behavior of main is
 	signal SCRUN, -- Sample Controller Run
 		SCBSY, -- Sample Controller Busy
 		X4SS, -- Channel X4 Single Sample
-		X4SSD -- Channel X4 Single Sample Done
+		X4SSS -- X4SS Strobe
 		: boolean := false;
 	attribute syn_keep of SCRUN, SCBSY : signal is true;
 	attribute nomerge of SCRUN, SCBSY : signal is "";  
@@ -552,6 +555,7 @@ begin
 			ACCRST <= '1';
 			SMWRCPU	<= '1';
 			X4SS <= false;
+			X4SSS <= false;
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
 		-- and transmit activity. Some signals we assert only for one CK period, and 
@@ -563,6 +567,7 @@ begin
 			ACCRST <= '0';
 			SMWRCPU <= '0';
 			int_rst <= (others => '0');
+			X4SSS <= false;
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
 					case bottom_bits is
@@ -695,14 +700,7 @@ begin
 							SMWRCPU <= cpu_data_out(3);
 							
 						-- We have four locations to describe how each input
-						-- is to be sample and shifted. The period tells us
-						-- how often to sample the input. When the period is
-						-- one, the Sample Controller will sample the input
-						-- at 1024 SPS. If zero, sampling of the input never
-						-- occurs. For another value, N, the Sample Controller
-						-- samples the input one in N times it runs. The shift 
-						-- is the number of left-shifts that the ADC Controller 
-						-- should apply to samples obtained from an input.
+						-- is to be sampled.
 						when mmu_x1cfg =>
 							x1_shift <= cpu_data_out(2 downto 0);
 						when mmu_x2cfg =>
@@ -712,6 +710,7 @@ begin
 						when mmu_x4cfg =>
 							x4_shift <= cpu_data_out(2 downto 0);
 							X4SS <= (cpu_data_out(3) = '1');
+							X4SSS <= (cpu_data_out(3) = '1');
 
 						-- For all other addresses, we have no bits to set.
 						-- he shadow RAM is recording all writes to these 
@@ -906,8 +905,6 @@ begin
 			TMINT <= false;
 			TMRUN := false;
 			state := tm_idle;
-			tx_index := 0;
-			X4SSD <= false;
 		elsif rising_edge(RCK) then
 			TMRUN := (int_mask(0) = '1');
 			
@@ -924,7 +921,6 @@ begin
 			if (state = to_integer(unsigned(transmit_shift))) then
 				if tx_index = 1 then
 					TMINT <= true;
-					X4SSD <= false;
 				end if;
 			elsif (state = tm_sample) then
 				ENFCKTM <= true;
@@ -934,7 +930,6 @@ begin
 				ENFCKTM <= false;
 				SCRUN <= false;
 				TMINT <= false;
-				X4SSD <= X4SS;
 				if tx_index = 1 then
 					tx_index := to_integer(unsigned(int_period_0));
 				else
@@ -943,7 +938,6 @@ begin
 			elsif (state = tm_idle) then
 				if not TMRUN then
 					tx_index := to_integer(unsigned(int_period_0));
-					X4SSD <= false;
 				end if;
 				ENFCKTM <= false;
 				SCRUN <= false;
@@ -1009,7 +1003,8 @@ begin
 -- input for which the index is not one will be skipped over. The Sample
 -- Controller sets the adc_sel and adc_shift arrays to make sure that
 -- the sample is shifted the correct number of places to the left and then
--- stored in the correct location in the sample memory.
+-- stored in the correct location in the sample memory. For the X4 channel,
+-- the controller will 
 	Sample_Controller : process (FCK) is
 	variable state, next_state : integer range 0 to 15 := 0;
 	constant sc_idle : integer := 0;
@@ -1022,6 +1017,7 @@ begin
 	constant x4_start : integer := 7;
 	constant x4_wait : integer := 8;
 	constant sc_wait : integer:= 9;
+	variable X4EN : boolean;
 	
 	begin
 		if not SCRUN then
@@ -1091,7 +1087,7 @@ begin
 			elsif (state = x4_start) then
 				adc_sel <= x4_sel;
 				adc_shift <= x4_shift;
-				if not X4SSD then
+				if X4EN then
 					ADCRD <= true;
 					if ADCBSY then
 						next_state := x4_wait;	
@@ -1120,16 +1116,24 @@ begin
 				next_state := sc_wait;
 			end if;
 			
-			if RESET = '1' then
-				ADCCAL <= true;
-			elsif falling_edge(FCK) then
-				if (state = sc_wait) then
-					ADCCAL <= false;
-				end if;
-			end if;
-			
 			state := next_state;
 			SCBSY <= (state > sc_idle) and (state < sc_wait);
+		end if;
+		
+		if RESET = '1' then
+			ADCCAL <= true;
+		elsif rising_edge(FCK) then
+			if (state = sc_wait) then
+				ADCCAL <= false;
+			end if;
+		end if;
+		
+		if X4SSS then
+			X4EN := true;
+		elsif rising_edge(FCK) then
+			if (state = sc_wait) then
+				X4EN := not X4SS;
+			end if;
 		end if;
 	end process;
 

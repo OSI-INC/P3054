@@ -1575,7 +1575,7 @@ ld (mmu_x3cfg),A
 ld A,8
 ld (x4_xpd),A
 ld (x4_idx),A
-ld A,adc_x4ss
+ld A,adc_shift0
 ld (mmu_x4cfg),A
 
 ld A,69
