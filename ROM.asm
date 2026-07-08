@@ -582,41 +582,26 @@ pop F
 ret
 
 ; ------------------------------------------------------------
-; The interrupt handler. Assumes that it interrupts a program
-; running off the slow clock. Boosts as quickly as possible to
-; fast clock, executes, then restores the clock. We handle the
-; user program interrupt, then stimulus interrupt, and finally
-; the transmit interrupt. By this means, when the interrupts
-; are coincident, the user program can affect the stimulus and
-; the stimulus can affect the transmission. The synchronizing
-; signal, for example, will reflect the most recent state of
-; the stimulus.
+; The interrupt handler. We have only one interrupt: the transmit
+; interrupt. If we arrived here with an interrupt request, we are 
+; already in boost. 
 
 interrupt:
 
-; Push A onto the stack. We are already in boost, provided that
-; we got here with an interrupt request.
+; We push A, F, and IX. Any task within this interrupt that uses 
+; anything other than A and F must push what it uses onto the stack 
+; and pop it back off again.
 
-push A              ; Save A on stack
-push F              ; Save the flags onto the stack.
-
-; Set diagnostic flag zero.
-
-ld A,(mmu_dfr)      ; Load the diagnostic flag register.
-or A,bit0_mask      ; set bit zero and
-ld (mmu_dfr),A      ; write to diagnostic flag register.
-
-; Push all the registers, even if we don't use them in the interrupt
-; code. We want to protect the calling process from the user program.
-
-push B
-push C
-push D
-push E
-push H
-push L
+push F       
+push A
 push IX
-push IY
+
+; Set a diagnostic flag to one to mark the beginning of the
+; interrupt service routine.
+
+ld A,(mmu_dfr)
+or A,bit0_mask
+ld (mmu_dfr),A
 
 ; Handle the transmit interrupt.
 
@@ -679,6 +664,9 @@ ld A,(acc_idx)
 dec A
 ld (acc_idx),A
 jp nz,int_xmit_acc_done
+push C
+push H
+push L
 ld A,(acc_xpd)
 ld (acc_idx),A
 ld A,bma_addr
@@ -703,8 +691,9 @@ ld A,(acc_xch)
 ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
-ld A,tx_delay 
-dly A
+pop L
+pop H
+pop C
 int_xmit_acc_done:
 
 ; Transmit a byte read from the non-volatile memory (NVM). 
@@ -721,6 +710,9 @@ ld A,(nvm_idx)
 dec A
 ld (nvm_idx),A
 jp nz,int_xmit_nvm_done
+push C
+push H
+push L
 ld A,(nvm_xpd)
 ld (nvm_idx),A
 ld A,(nvm_xal)
@@ -750,13 +742,17 @@ ld A,(nvm_xch)
 ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
-ld A,tx_delay 
-dly A
+pop L
+pop H
+pop C
 int_xmit_nvm_done:
 
-; Transmit accumulated X1-X4 samples.
+; Transmit accumulated X1-X4 samples. We are going to use B,
+; so push its current value onto the stack. Other than that,
+; we will use only A, F, and IX, but they are already pushed.
 
 int_xmit_x:
+push B
 
 ; The first input is X1. We store the address of its transmit
 ; period in IX. We will be incrementing and decrementing IX
@@ -805,12 +801,16 @@ push B
 pop A
 ld (mmu_smcr),A
 
-; Make sure the transmitter is not busy.
+; Here we could check to see if the transmitter has finished 
+; any previous sample transmission before writing to the 
+; transmit data registers, but the number of clock cycles since
+; the previous is at least 40, or 8 us, which is more than the
+; 7-us transmission. So we comment out the polling code.
 
-int_xmit_x_txw:
-ld A,(mmu_sr)
-and A,sr_txa
-jp nz,int_xmit_x_txw
+; int_xmit_x_txw:
+; ld A,(mmu_sr)
+; and A,sr_txa
+; jp nz,int_xmit_x_txw
 
 ; Read the accumulated sample provided by the sample memory
 ; and write to the sample transmitter.
@@ -860,52 +860,39 @@ sub A,B
 jp z,int_xmit_x_done
 
 ; Prepare for the next input. We increment the sample address
-; and move IX from this input's period to the next input's period.
+; and move IX from this input's period to the next input's period,
+; which requires incremengint by three.
 
 inc B
-inc IX
-inc IX
-inc IX
+inc IX ; Sample Index
+inc IX ; Telemetry Channel
+inc IX ; Next Input's Sample Period
 jp int_xmit_x_loop
 
-; Done with ADC readout and transmission.
+; Done with ADC readout and transmission. We must pop B off the
+; stack.
 
 int_xmit_x_done:
-
-; Done with transmit interrupt. Make sure we are not transmitting before
-; we leave.
-
-int_xmit_done_txw:
-ld A,(mmu_sr)
-and A,sr_txa
-jp nz,int_xmit_done_txw
-
-int_xmit_done:
-
-; Restore registers.
-
-int_done:
-pop IY
-pop IX
-pop L
-pop H
-pop E
-pop D
-pop C
 pop B
 
-; Clear diagnostic flag zero.
+; Done with transmit interrupt. Wait until transmitter is not busy.
 
-ld A,(mmu_dfr)      ; Load the diagnostic flag register.
-and A,bit0_clr      ; Clear bit zero and
-ld (mmu_dfr),A      ; write to diagnostic flag register.
+int_xmit_done:
+ld A,(mmu_sr)
+and A,sr_txa
+jp nz,int_xmit_done
 
+; Done with interrupt. Clear the diagnsotic flag and restore IX,
+; A, and F before returning.
 
-; Restore flags and accumulator, return from interrupt.
-
-pop F               ; Restore the flags.
-pop A               ; Restore A.
-rti                 ; Return from interrupt.
+int_done:
+ld A,(mmu_dfr)     
+and A,bit0_clr  
+ld (mmu_dfr),A 
+pop IX
+pop A 
+pop F
+rti 
 
 ; ------------------------------------------------------------
 ; Transmit an annoucement, which consists of two auxiliary 
