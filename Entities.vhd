@@ -5,21 +5,21 @@ use ieee.numeric_std.all;
 
 entity ring_oscillator is 
 	generic (
-		num_gates : integer := 30;
-		num_feeds : integer := 8
+		ring_len : integer
 	);
 	port (
 		ENABLE : in std_logic;
-		mask : in std_logic_vector(num_feeds-1 downto 0);
 		CK : out std_logic
 	);
 end;
 
 architecture behavior of ring_oscillator is 
 
--- We specify the length of the ring with an integer between 20 and 30. The
--- code selects the 20th to 30th gate in the ring as the source of the 
--- signal for the first gate.
+-- We add gates to the ring until we get the correct period. The ring_len 
+-- constant sets the number of gates, and these we form into a ring. The 
+-- ring is built during generation. It cannot be reconfigured at run-time.
+-- It cannot be calibrated automatically with respect to a reference clock. 
+-- It must be calibrated prior to final firmware programming.
 
 -- When compiling and routing this oscillator, we have to convince the VHDL 
 -- compiler to retain the ring buffers, despite its great desire to elimnate 
@@ -37,30 +37,26 @@ architecture behavior of ring_oscillator is
 	attribute syn_keep : boolean;
 	attribute nomerge : string;
 
--- Ring Oscillator
+-- Ring Oscillator and Transmit Clock
 	component BUFBA is port (A : in std_logic; Z : out std_logic); end component;
-	signal R : std_logic_vector(num_gates downto 0);
+	signal R : std_logic_vector(ring_len downto 0);
 	attribute syn_keep of R : signal is true;
 	attribute nomerge of R : signal is ""; 
 
 begin
 
 -- Declare the ring oscillator gate entities.
-	gen_ring : for i in 0 to num_gates-1 generate
+	gen_ring : for i in 0 to ring_len-1 generate
         stage : BUFBA
             port map (
                 A => R(i),
                 Z => R(i+1)
             );
     end generate;
-	
--- When ENABLE, feed back the output of the gate selected by the
--- ring mask to the first gate in the ring.
-	R(0) <= to_std_logic(
-		(ENABLE = '1') 
-		and ((R(num_gates downto num_gates-num_feeds+1) and mask)
-			= (mask'range => '0'))		);
 
+-- When ENABLE, feed back the output of the final gate to the first gate.
+	R(0) <= to_std_logic((ENABLE = '1') and (R(ring_len) = '0'));
+	
 -- The clock output.
 	CK <= R(0);
 end behavior;
