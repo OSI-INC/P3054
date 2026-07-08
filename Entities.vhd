@@ -59,7 +59,7 @@ begin
 	R(0) <= to_std_logic(
 		(ENABLE = '1') 
 		and ((R(num_gates downto num_gates-num_feeds+1) and mask)
-			/= (mask'range => '0'))		);
+			= (mask'range => '0'))		);
 
 -- The clock output.
 	CK <= R(0);
