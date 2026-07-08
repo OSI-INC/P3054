@@ -13,10 +13,11 @@
 
 ; Configuration Constants.
 
-const version         1 ; The firmwarwe version.
+const version         1 ; Tirmwarwe Version.
 const id_hi        0xAA ; 0-255, no restrictions
 const id_lo        0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
-const rf_low         14 ; Radio frequency calibration.
+const rf_low         14 ; Radio Frequency Calibration.
+const fck_mask     0x80 ; Fast Clock Mask
 
 ; CPU Address Map Boundaries. The first 256-byte block is  
 ; the control register space. This is shadowed by RAM so
@@ -49,6 +50,7 @@ const mmu_dfr    0x000C ; Diagnostic Flag Register (Write/Readback)
 const mmu_sr     0x000D ; Status Register (Read)
 const mmu_cmp    0x000E ; Command Memory Portal (Read)
 const mmu_cpr    0x000F ; Command Processor Reset (Write)
+const mmu_fck    0x0010 ; Fast Clock Mask (Write/Readback)
 const mmu_i0p    0x0011 ; Interrupt Zero Period (Write/Readback)
 const mmu_i2c00  0x0012 ; i2c SDA=0 SCL=0 (Write/Readback)
 const mmu_i2c01  0x0013 ; i2c SDA=0 SCL=1 (Write/Readback)
@@ -1550,6 +1552,8 @@ ld A,0xFF          ; Prepare ones to write.
 ld (mmu_irst),A    ; Reset all interrupts.
 ld A,rf_low        ; Write the radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
+ld A,fck_mask      ; Writ the fast clock mask
+ld (mmu_fck),A     ; to the ring oscillator.
 ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
 
 ; Configure analog inputs.

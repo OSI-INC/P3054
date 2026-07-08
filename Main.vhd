@@ -118,12 +118,17 @@ entity main is
 		xdac -- Transmit DAC Output, to set data transmit frequency
 		: out std_logic_vector(4 downto 0));
 		
--- Configuration and Calibration of Transmitter.
-	constant fck_divisor : integer := 20;
+-- Configuration of the Transmitter.
 	constant tx_channel_default : integer := 1;
 	constant frequency_step : integer := 1; 
 	constant default_frequency_low : integer := 5;
-		
+-- Configuration of the Ring Oscillator
+	constant fck_num_feeds : integer := 8;
+	constant fck_num_gates : integer := 28;
+	constant default_fck_mask :
+		std_logic_vector(fck_num_feeds-1 downto 0) :=
+		(fck_num_feeds-1 => '1', others => '0');
+
 -- Configuration of OSR8 CPU.
 	constant prog_cntr_len : integer := 12;
 	constant cpu_addr_len : integer := 10;
@@ -157,6 +162,7 @@ entity main is
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
 	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal (Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
+	constant mmu_fck   : integer := 16#10#; -- Fast Clock Mask (Write/Readback)
 	constant mmu_i0p   : integer := 16#11#; -- Interrupt Zero Period (Write/Readback)
 	constant mmu_i2c00 : integer := 16#12#; -- i2c SDA=0 SCL=0 (Write/Readback)
 	constant mmu_i2c01 : integer := 16#13#; -- i2c SDA=0 SCL=1 (Write/Readback)
@@ -199,7 +205,8 @@ architecture behavior of main is
 -- makes the ring oscillator period vary from one compile to the next.
 	signal TCK, FCK, FCKEN, CK, MCK : std_logic;
 	attribute syn_keep of TCK, FCK, FCKEN, CK, MCK : signal is true;
-	attribute nomerge of TCK, FCK, FCKEN, CK, MCK : signal is ""; 
+	attribute nomerge of TCK, FCK, FCKEN, CK, MCK : signal is "";
+	signal fck_mask : std_logic_vector(7 downto 0);
 
 -- Message Transmission. The syn_keep and nomerge reduce code size slightly.
 	signal TXI, -- Transmit Initiate
@@ -375,8 +382,12 @@ begin
 -- The ring oscillator should be calibrated so that it produces FCK of 10 MHz.
 	FCKEN <= to_std_logic(ENFCKCPU or ENFCKTM or KEEPFCK or CPUISRV);
 	Fast_Clock: entity ring_oscillator 
-		generic map (ring_len => fck_divisor)	
+		generic map (
+			num_gates => fck_num_gates,
+			num_feeds => fck_num_feeds
+		)	
 		port map (
+			mask => fck_mask,
 			ENABLE => FCKEN, 
 			CK => FCK
 		);
@@ -548,6 +559,7 @@ begin
 			int_period_0 <= (others => '0');
 			CPRST <= true;
 			frequency_low <= default_frequency_low;
+			fck_mask <= default_fck_mask;
 			SDA <= 'Z';
 			SCL <= '1';
 			MSR <= '0';
@@ -587,11 +599,11 @@ begin
 						-- The two locations in which the CPU places the sixteen
 						-- telemetry sample bits that will be transmitted after the
 						-- next write to the transmission control register.
-						when mmu_xlb  => xmit_bits(7 downto 0) <= cpu_data_out;
-						when mmu_xhb  => xmit_bits(15 downto 8) <= cpu_data_out;
+						when mmu_xlb => xmit_bits(7 downto 0) <= cpu_data_out;
+						when mmu_xhb => xmit_bits(15 downto 8) <= cpu_data_out;
 						
 						-- The telemetry channel number for the next transmission.
-						when mmu_xch  => tx_channel <= to_integer(unsigned(cpu_data_out));
+						when mmu_xch => tx_channel <= to_integer(unsigned(cpu_data_out));
 						
 						-- The telemetry control register. The TXI initiates a transmission,
 						-- while TXWP turns on the VCO to warm it up before it transmits, 
@@ -599,13 +611,13 @@ begin
 						-- 20 ms. We must turn off the warm-up by writing a zero to TXWP
 						-- after a warm-up of no more than 20 ms so we do not collide with
 						-- other transmitters.
-						when mmu_xcr  => 
+						when mmu_xcr => 
 							TXI <= (cpu_data_out(0) = '1');
 							TXWP <= (cpu_data_out(1) = '1');
 							
 						-- The frequency calibration of the VCO. We write the VCO control
 						-- five-bit DAC value that sets the frequency of a transmit zero.
-						when mmu_rfc  => frequency_low <= to_integer(unsigned(cpu_data_out));
+						when mmu_rfc => frequency_low <= to_integer(unsigned(cpu_data_out));
 						
 						-- The interrupt mask. Bits set to one enable their corresponding
 						-- interrupt request bits and any peripheral machines that generate
@@ -616,7 +628,7 @@ begin
 						-- between 0 and 31 to indicate the transmit interrupt period in
 						-- multiples of 1/1024 s. When the period is zero, the interrupt
 						-- will take place every 32 periods, or at 32 Hz.
-						when mmu_i0p  => int_period_0 <= cpu_data_out(4 downto 0);
+						when mmu_i0p => int_period_0 <= cpu_data_out(4 downto 0);
 
 						-- The interrupt reset register. Bits set to one reset their
 						-- corresponding interrupt request bits, signalling that the
@@ -624,10 +636,10 @@ begin
 						when mmu_irst => int_rst <= cpu_data_out;
 						
 						-- Turn on the indicator lamp.
-						when mmu_led  => LED <= cpu_data_out(0);
+						when mmu_led => LED <= cpu_data_out(0);
 						
 						-- A strobe that reboots the firmware and CPU.
-						when mmu_rst  => SWRST <= (cpu_data_out(0) = '1');
+						when mmu_rst => SWRST <= (cpu_data_out(0) = '1');
 						
 						-- Control bits to turn on the fast clock, which in turn
 						-- produces the transmit clock, and to move the CPU into
@@ -636,17 +648,22 @@ begin
 						-- performed by the Boost Controller when it sees the
 						-- CPU's interrupt service flag has been set by the CPU
 						-- to indicate that it is servicing an interrupt.
-						when mmu_ccr  => 
+						when mmu_ccr => 
 							ENFCKCPU <= (cpu_data_out(0) = '1');
 							BOOST <= (cpu_data_out(1) = '1');
 							
 						-- The diagnostic flag register. These bits can be routed
 						-- to test points for diagnostics with an oscilloscope.
-						when mmu_dfr  => df_reg <= cpu_data_out(3 downto 0);
+						when mmu_dfr => df_reg <= cpu_data_out(3 downto 0);
 						
 						-- The command processor reset bit: clears the command
 						-- FIFO and returns the command processor to its rest state.
-						when mmu_cpr  => CPRST <= true;
+						when mmu_cpr => CPRST <= true;
+						
+						-- The fast clock mask has only one bit out of eight set,
+						-- and this bit selects which gate in the ring will be
+						-- used for feedback, thus setting the ring frequency.
+						when mmu_fck => fck_mask <= cpu_data_out;
 						
 						-- The I2C bit-banging interface. Each write to one of these
 						-- locations sets both SDA and SCL to one of zero, one, or
@@ -1004,7 +1021,8 @@ begin
 -- Controller sets the adc_sel and adc_shift arrays to make sure that
 -- the sample is shifted the correct number of places to the left and then
 -- stored in the correct location in the sample memory. For the X4 channel,
--- the controller will 
+-- the controller will take only one sample for every time the CPU sets
+-- the X4SS bit. 
 	Sample_Controller : process (FCK) is
 	variable state, next_state : integer range 0 to 15 := 0;
 	constant sc_idle : integer := 0;
