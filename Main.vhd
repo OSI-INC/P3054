@@ -88,7 +88,9 @@
 -- interrupt mask bit0. Add X4SS for "Input X4 Single Sample" to allow 
 -- sampling of chaotic signals without low-pass filtering.
 
--- V1.15 [07-JUL-26] Working on software-adjustable ring oscillator.
+-- V1.15 [08-JUL-26] Ring oscillator now software-programmable with eight-bit
+-- mask written to location mmu_fck. Fix bug in X4SS logic. When we write to
+-- the X4SS bit, not only to we set X4SS, but we also strobe X4SSS.
 
 library ieee;  
 use ieee.std_logic_1164.all;
