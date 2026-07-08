@@ -119,7 +119,7 @@ entity main is
 		: out std_logic_vector(4 downto 0));
 -- Configuration of the Ring Oscillator
 	constant fck_num_feeds : integer := 8;
-	constant fck_num_gates : integer := 28;
+	constant fck_num_gates : integer := 24;
 
 -- Configuration and Calibration of Transmitter.
 	constant tx_channel_default : integer := 1;

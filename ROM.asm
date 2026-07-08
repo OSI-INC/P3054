@@ -17,7 +17,7 @@ const version         1 ; Firmwarwe Version.
 const id_hi        0xAA ; 0-255, no restrictions
 const id_lo        0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
 const rf_low         14 ; Radio Frequency Low Calibration.
-const fck_mask     0x01 ; Fast Clock Mask
+const fck_mask     0x10 ; Fast Clock Mask
 
 ; CPU Address Map Boundaries. The first 256-byte block is  
 ; the control register space. This is shadowed by RAM so
