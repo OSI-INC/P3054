@@ -117,9 +117,11 @@ entity main is
 		: inout std_logic;
 		xdac -- Transmit DAC Output, to set data transmit frequency
 		: out std_logic_vector(4 downto 0));
-		
+-- Configuration of the Ring Oscillator
+	constant fck_num_feeds : integer := 8;
+	constant fck_num_gates : integer := 28;
+
 -- Configuration and Calibration of Transmitter.
-	constant fck_divisor : integer := 23;
 	constant tx_channel_default : integer := 1;
 	constant frequency_step : integer := 1; 
 	constant default_frequency_low : integer := 5;
@@ -157,6 +159,7 @@ entity main is
 	constant mmu_sr    : integer := 16#0D#; -- Status Register (Read)
 	constant mmu_cmp   : integer := 16#0E#; -- Command Memory Portal (Read)
 	constant mmu_cpr   : integer := 16#0F#; -- Command Processor Reset (Write)
+	constant mmu_fck   : integer := 16#10#; -- Fast Clock Mask (Write/Readback)
 	constant mmu_i0p   : integer := 16#11#; -- Interrupt Zero Period (Write/Readback)
 	constant mmu_i2c00 : integer := 16#12#; -- i2c SDA=0 SCL=0 (Write/Readback)
 	constant mmu_i2c01 : integer := 16#13#; -- i2c SDA=0 SCL=1 (Write/Readback)
@@ -200,6 +203,10 @@ architecture behavior of main is
 	signal TCK, FCK, FCKEN, CK, MCK : std_logic;
 	attribute syn_keep of TCK, FCK, FCKEN, CK, MCK : signal is true;
 	attribute nomerge of TCK, FCK, FCKEN, CK, MCK : signal is ""; 
+	signal fck_mask : std_logic_vector(fck_num_feeds-1 downto 0);
+	constant default_fck_mask :
+		std_logic_vector(fck_num_feeds-1 downto 0) :=
+		(fck_num_feeds-1 => '1', others => '0');
 
 -- Message Transmission. The syn_keep and nomerge reduce code size slightly.
 	signal TXI, -- Transmit Initiate
@@ -375,9 +382,13 @@ begin
 -- The ring oscillator should be calibrated so that it produces FCK of 10 MHz.
 	FCKEN <= to_std_logic(ENFCKCPU or ENFCKTM or KEEPFCK or CPUISRV);
 	Fast_Clock: entity ring_oscillator 
-		generic map (ring_len => fck_divisor)	
+		generic map (
+			num_gates => fck_num_gates,
+			num_feeds => fck_num_feeds
+		)	
 		port map (
 			ENABLE => FCKEN, 
+			mask => fck_mask,
 			CK => FCK
 		);
 		
@@ -548,6 +559,7 @@ begin
 			int_period_0 <= (others => '0');
 			CPRST <= true;
 			frequency_low <= default_frequency_low;
+			fck_mask <= default_fck_mask;
 			SDA <= 'Z';
 			SCL <= '1';
 			MSR <= '0';
@@ -647,6 +659,11 @@ begin
 						-- The command processor reset bit: clears the command
 						-- FIFO and returns the command processor to its rest state.
 						when mmu_cpr  => CPRST <= true;
+						
+						-- The fast clock mask has only one bit out of eight set,
+						-- and this bit selects which gate in the ring will be
+						-- used for feedback, thus setting the ring frequency.
+						when mmu_fck => fck_mask <= cpu_data_out;
 						
 						-- The I2C bit-banging interface. Each write to one of these
 						-- locations sets both SDA and SCL to one of zero, one, or
@@ -1738,5 +1755,5 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(0);
+	TP <= FCK;
 end behavior;
