@@ -1,23 +1,17 @@
 ; A3054 Intraperitoneal Transmitter (IPT) Program
 ; -----------------------------------------------
 
-; This code runs in an OSR8 microprocessor. We begin with
-; declaration of two-byte constants for memory addresses and 
-; one-byte constants for parameter values. After that come
-; routines to configure the sensors, the interrupt routine
-; that does just about everything, the command acknowledge
-; routines, and the command interpreter routine. The 
-; initialization code comes next, and the main loop. Last
-; of all we have included files: the eight-bit multiplier
-; routine and I2C write and read routines.
-
-; Configuration Constants.
+; Version number and other software codes.
 
 const version         1 ; Firmwarwe Version.
-const id_hi        0xAA ; 0-255, no restrictions
-const id_lo        0x55 ; 0-255, low nibble cannot be 0x0 or 0xF 
-const rf_low         14 ; Radio Frequency Low Calibration.
-const fck_mask     0x08 ; Fast Clock Mask
+const calib_key  0x1234 ; Calibration Key
+const config_key 0x5678 ; Configuration Key
+
+; Default values for calibration and configuration.
+
+const def_id     0xAA55 ; Device ID, low nibble 1-E only.
+const def_rf         14 ; Radio Frequency Low Calibration.
+const def_fck      0x10 ; Fast Clock Mask
 
 ; CPU Address Map Boundaries. The first 256-byte block is  
 ; the control register space. This is shadowed by RAM so
@@ -31,6 +25,16 @@ const stack_bot  0x0100 ; Program Stack
 const scr_bot    0x0200 ; Scratch-Pad
 const var_bot    0x0300 ; Program Variables
 const mem_top    0x03FF ; Top of Address Map
+
+; Non-Volatile Memory Map Boundaries. We have four blocks
+; assigned in the NVM: calibration, configuration, notes,
+; and history.
+
+const calib_bot  0x0000 ; Calibration
+const config_bot 0x0100 ; Configuration
+const notes_bot  0x0200 ; User Notes
+const hist_bot   0x0400 ; Use History
+const hist_top   0x07FF ; Top of NVM
 
 ; Control Register Locations. These are shadowed in RAM.
 
@@ -67,14 +71,37 @@ const mmu_x4cfg  0x001D ; X4 Configuration (Write/Readback)
 const mmu_smemh  0x001E ; ADC Data HI Byte (Read)
 const mmu_smeml  0x001F ; ADC Data LO Byte (Read)
 
-; The variable space will be entirely written on start-up by a
-; a block read from the NVM. Before copying, however, we check
-; to see if the first two bytes match our password.
+; Calibration Block: Locations we define in the scratch
+; area that we will use to store the calibration block
+; we read from the non-volatile memory (NVM). Provided
+; the calibration key is correct, we will transfer these
+; values to calibration registers and permanent memory
+; locations. If the key is incorrect, the default 
+; calibration values will be applied.
 
-const key_hb     0x0300 
-const key_lb     0x0301
+const calib_len      16 ; Number of bytes to read
+const calib_keyh 0x0200 ; Calibration Key, HI byte
+const calib_keyl 0x0201 ; Calibration Key, LO byte
+const calib_idh  0x0202 ; Device Identifier, HI byte
+const calib_idl  0x0203 ; Device Identifier, LO byte
+const calib_fck  0x0204 ; Fast Clock Calibration Mask
+const calib_rf   0x0205 ; Radio Frequency Low Calibration
 
-; Variables: Amplifier and sampling configuration. For each 
+; Configuration Block: Variables space that will be 
+; over-written by reads from the configuration block of 
+; the non-volatile memory (NVM). This space occupies the
+; bottom 128 bytes of the 256-byte program variable space.
+; A configuration read begins by reading the first sixteen
+; bytes from NVM. The first two must match the configuration
+; key or else the configuration variables will not be 
+; over-written, but will continue to hold their default
+; values.
+
+const conf_len      128 ; Number of bytes to read
+const conf_keyh  0x0300 ; Configuration Key, HI byte
+const conf_keyl  0x0301 ; Configuration Key, LO byte
+
+; Configuration Variables: Amplifier and Sampling. For each 
 ; of the four biopotential inputs, we have a sample index,
 ; transmit period, sample storage base address in the sample
 ; memory, a sample control command that includes the number
@@ -99,52 +126,54 @@ const x3_xch     0x0318 ; Transmit Channel Number
 const x4_xpd     0x0319 ; Transmit Period
 const x4_idx     0x031A ; Sample Index
 const x4_xch     0x031B ; Transmit Channel Number
+const dc_in      0x031C ; X1-X3 DC-Coupled
+const x4_ss      0x031D ; X4 Single Sample
 
-const dc_in      0x031F ; DC-Coupled Inputs
+; Configuration Variables: Temperature Sensor. The measurement
+; period is in multiples of 250 ms. We have a two-byte timer 
+; that is incremented on every interrupt. When its HI byte 
+; equals the period, we read the sensor and initiate another
+; conversion.
 
-; Variables: Configuration of the TMP117 temperature sensor. 
-; The period is in multiples of 250 ms. We have a two-byte
-; timer that is incremented on every interrupt. When its hi
-; byte equals the period, we read thesensor and initiate 
-; another conversion.
+const temp_xch   0x0320 ; Transmit Channel 
+const temp_xpd   0x0321 ; Transmit Period
+const temp_idx   0x0322 ; Index
+const temp_mpd   0x0323 ; Measurement Period
+const temp_mth   0x0324 ; Measurement Timer, HI
+const temp_mtl   0x0325 ; Measurement Timer, LO
+const temp_svh   0x0326 ; Saved, HI
+const temp_svl   0x0327 ; Saved, LO
 
-const temp_xch   0x0350 ; Transmit Channel 
-const temp_xpd   0x0351 ; Transmit Period
-const temp_idx   0x0352 ; Index
-const temp_mpd   0x0353 ; Measurement Period
-const temp_mth   0x0354 ; Measurement Timer, HI
-const temp_mtl   0x0355 ; Measurement Timer, LO
-const temp_svh   0x0356 ; Saved, HI
-const temp_svl   0x0357 ; Saved, LO
-
-; Variables: Configuration of BMA423 accelerometer. The state 
-; is a code for enabled or disabled. The rate is a code for the 
-; update frequency. The range is a code for the acceleration 
+; Configuration Variables: Accelerometer. The state code is
+; enabled or disabled. The rate is a code for the update 
+; frequency. The range is a code for the acceleration 
 ; dynamic range.
 
-const acc_xch    0x0360 ; Transmit Channel
-const acc_xpd    0x0361 ; Transmit Period
-const acc_idx    0x0362 ; Index
-const bma_state  0x0363 ; Enable or Disable
-const bma_rate   0x0364 ; Update Rate
-const bma_range  0x0365 ; Dynamic Range
+const acc_xch    0x0330 ; Transmit Channel
+const acc_xpd    0x0331 ; Transmit Period
+const acc_idx    0x0332 ; Index
+const bma_state  0x0333 ; Enable or Disable
+const bma_rate   0x0334 ; Update Rate
+const bma_range  0x0335 ; Dynamic Range
 
-; Variables: NVM readout and transmission. Each transmit
+; Configuration Variables: NVM Transmission. Each transmit
 ; sample is a new byte read from the NVM, in which the top
 ; byte is the byte read and the bottom byte is the bottom
 ; eight bits of the address.
 
-const nvm_xch    0x0370 ; Transmit Channel
-const nvm_xpd    0x0371 ; Transmit Period
-const nvm_idx    0x0372 ; Index
-const nvm_xah    0x0373 ; Transmit Address, HI
-const nvm_xal    0x0374 ; Transmit Address, LO
+const nvm_xch    0x0340 ; Transmit Channel
+const nvm_xpd    0x0341 ; Transmit Period
+const nvm_idx    0x0342 ; Index
+const nvm_xah    0x0343 ; Transmit Address, HI
+const nvm_xal    0x0344 ; Transmit Address, LO
 
-; Variables: Temporary storage locations for particular
-; purposes, available globally.
+; Variables: These are used by the program during 
+; operation, not just during initialization.
 
-const sack_key   0x03F0 ; Acknowledgement key
-const ccmdb      0x03F1 ; Copy of Command Byte
+const sack_key   0x0380 ; Acknowledgement key
+const ccmdb      0x0381 ; Copy of Command Byte
+const id_h       0x0382 ; Device Identifier, HI
+const id_l       0x0383 ; Device Identifier, LO
 
 ; Constants: Non-volatile memory password.
 
@@ -197,8 +226,7 @@ const uprog_tick    163 ; User program interrupt period minus one
 const id_delay       33 ; Identification spacing in TCK periods
 const ms_tick        33 ; One millisecond in RCK periods
 const int_period     31 ; Interrupt period in RCK periods
-const lon_ms         20 ; Lamp on time in milliseconds
-const loff_ms       200 ; Lamp off time in milliseconds
+const flash_ms       20 ; Lamp flash in milliseconds
 const spd_500ms       2 ; 1/2 s in 256 * interrupt period
 const spd_1000ms      4 ; 1 s in 256 * interrupt period
 const spd_2000ms      8 ; 2 s in 256 * interrupt period
@@ -211,17 +239,29 @@ const at_batt         3 ; Battery Measurement
 const at_conf         4 ; Confirmation
 const at_ver          5 ; Version
 
-; Constants: Command Codes
+; Constants: Telemetry Command Operation Codes. We provide
+; a complete list of defined operation codes and indicate
+; which we support in this program.
 
-const op_id           5 ;
-const op_ver         11 ; 
-const op_ton         16 ; 
-const op_toff        17 ;
-const op_zon         18 ; 
-const op_zoff        19 ;
-const op_nvmwr       20 ;
-const op_lon         30 ;
-const op_loff        31 ; 
+const op_stop         0 ; Start Stimulus, Unsupported
+const op_start        1 ; Stop Stimulus, Unsupported
+const op_xon          2 ; Transmit On, Specify Channel, Unsupported
+const op_xoff         3 ; Transmit Off, Cancels Xon, Unsupported
+const op_batt         4 ; Request Battery Voltage, Supported
+const op_id           5 ; Request Identifier, Supported
+const op_pgld         6 ; Program Load, Unsupported
+const op_pgon         7 ; Program On, Unsupported
+const op_pgoff        8 ; Program Odd, Unsupported
+const op_pgrst        9 ; Program Reset, Unsupported
+const opo_shdn       10 ; Shutdown Device, Unsupported
+const op_ver         11 ; Request Version, Supported
+const op_ton         12 ; Telemetry Protocol On, Supported
+const op_toff        13 ; Telemetry Protocol Off, Supported
+const op_zon         14 ; Impedance Measurement On, Supported
+const op_zoff        15 ; Impedance Measurement Off, Supported
+const op_nvmwr       16 ; Non-Volatile Memory Write, Supported
+const op_flash       17 ; Lamp Flash, Supported
+const op_reset       18 ; Reset, Supported
 
 ; Constants: Non-Volatile Memory. The M24C16 EEPROM provides 
 ; 2K x 8 of NVM with an I2C interface. We can read 1-2048 
@@ -298,7 +338,6 @@ const sm_x4        0x03 ; X4 Sample Memory Location
 ; Constants: Mathematical.
 
 const off_16bs     0x80 ; Convert sixteen bit signed to unsigned.
-
 
 ; ------------------------------------------------------------
 ; The CPU reserves two locations 0x0000 for the start of program
@@ -707,11 +746,12 @@ ld A,tx_delay
 dly A
 int_xmit_acc_done:
 
-; Transmit a byte read from the non-volatile memory (NVM). 
-; We transmit bytes read consecutively. We put the byte 
-; value in the top eight transmit sample bits. We put the 
-; bottom eight bits of the NVM address in the bottom eight 
-; transmit sample bits.
+; Transmit a byte from the non-volatile memory (NVM). We 
+; transmit the byte as the top byte in our two-byte
+; telemetry sample. We put the bottom eight bits of the 
+; NVM address in the bottom byte of the sample. Each
+; time we transmit a byte, we increment an address counter
+; so that we read all the bytes in turn.
 
 int_xmit_nvm:
 ld A,(nvm_xpd)
@@ -949,7 +989,7 @@ dly A               ; transmit.
 ; with a nibble containing the auxiliary type, which has been 
 ; passed in A. The second byte consists of the data in register B.
 
-ld A,id_lo          ; Load LO byte of identifier into A,
+ld A,(id_l)         ; Load LO byte of identifier into A,
 or A,0x0F           ; set lower four bits to one
 ld (mmu_xch),A      ; and write the transmit channel register.
 push B              ; Transfer the data byte from
@@ -957,7 +997,7 @@ pop A               ; B into A
 ld (mmu_xlb),A      ; and write to transmit LO register.
 push C              ; Transfer auxiliary type
 pop B               ; into B.
-ld A,id_lo          ; Load LO byte of identifier again.
+ld A,(id_l)         ; Load LO byte of identifier again.
 sla A               ; Shift A 
 sla A               ; left
 sla A               ; four
@@ -976,12 +1016,12 @@ dly A               ; the transmit completes.
 ; type of a confirmation is always at_conf and the data byte is always
 ; the high byte of the device identifier.
 
-ld A,id_hi          ; Load HI byte id identifier into A and
+ld A,(id_h)         ; Load HI byte id identifier into A and
 ld (mmu_xlb),A      ; write to transmit LO register.
-ld A,id_lo          ; Load LO byte of identifier into A,
+ld A,(id_l)         ; Load LO byte of identifier into A,
 or A,0x0F           ; set lower four bits to one and
 ld (mmu_xch),A      ; write to the transmit channel register.
-ld A,id_lo          ; Load LO byte into A again,
+ld A,(id_l)         ; Load LO byte into A again,
 sla A               ; shift A 
 sla A               ; left
 sla A               ; four
@@ -1028,7 +1068,12 @@ pop F
 ret
 
 ; ------------------------------------------------------------
-; Transmit a battery measurement. Routine mimics an A3041.
+; Transmit a battery measurement. Returns an estimate of the
+; fraction of battery capacity used so far. The battery use
+; history section of the NVM contains all zeros after we 
+; format its contents. The IST writes an hour counter value
+; to the next free entry in the history every time it uses
+; another full 1% of battery capacity.
 ;
 ; Assumes boost mode with interrupts disabled because it calls
 ; the xmit_annc routine that requires boost mode and interrupts
@@ -1040,7 +1085,7 @@ push F
 push A
 push B
 
-ld A,102  
+ld A,0
 push A 
 pop B  
 ld A,at_batt 
@@ -1099,10 +1144,10 @@ push L
 ; collide only if their IDs are consecutive, and we will wait
 ; only 0.7 s. 
 
-ld A,id_hi
+ld A,(id_h)
 push A
 pop H
-ld A,id_lo
+ld A,(id_l)
 push A
 pop L
 identify_delay:
@@ -1122,7 +1167,7 @@ jp nc,identify_delay
 
 ; Prepare A and B for call to xmit_annc.
 
-ld A,id_hi          ; Load HI byte id identifier 
+ld A,(id_h)         ; Load HI byte id identifier 
 push A              ; into A and
 pop B               ; store in B.
 ld A,at_id          ; Load the identify type code into A.
@@ -1263,10 +1308,10 @@ jp nz,cmd_done
 
 ; Load the device id into HL and the command target id into DE.
 
-ld A,id_hi
+ld A,(id_h)
 push A
 pop H
-ld A,id_lo
+ld A,(id_l)
 push A
 pop L
 call get_cmd_byte
@@ -1333,29 +1378,38 @@ call get_cmd_byte
 
 ld (sack_key),A
 
-; The lamp-off instruction. Turn off the LED.
+; The reset instruction. In order to reset the CPU, we must
+; move out of boost, delay a bit, and write to the software 
+; reset location. After that we wait.
 
-check_loff:
+check_reset:
 ld A,(ccmdb)
-sub A,op_loff
-jp nz,check_loff_end
-ld A,0x00             ; Clear A and
-ld (mmu_led),A        ; turn off lamp.
-call annc_ack         ; Acknowledge.
-jp cmd_loop
-check_loff_end:
+sub A,op_reset
+jp nz,check_reset_end
+ld A,0x00
+ld (mmu_ccr),A 
+ld A,0xFF
+dly A
+ld A,0x01
+ld (mmu_rst),A
+wait
+check_reset_end:
 
-; The lamp-on instruction. We turn on the LED.
+; The flash instruction. We flash the LED.
 
-check_lon:
+check_flash:
 ld A,(ccmdb)
-sub A,op_lon
-jp nz,check_lon_end
-ld A,0x01            ; Load a one for bit zero
-ld (mmu_led),A       ; and turn on the LED.
-call annc_ack        ; Acknowledge.
+sub A,op_flash
+jp nz,check_flash_end
+ld A,0x01
+ld (mmu_led),A
+ld A,flash_ms
+call delay_ms
+ld A,0x00
+ld (mmu_led),A
+call annc_ack 
 jp cmd_loop
-check_lon_end:
+check_flash_end:
 
 ; The impedance measurement off instruction. We open the impedance
 ; measurement switch so that the unipolar input ground is equal to
@@ -1480,6 +1534,18 @@ call annc_ver
 jp cmd_loop
 check_ver_end:
 
+; Battery voltage request instruction. This instruction 
+; takes no operands. We call the battery capacity transmit 
+; routine.
+
+check_batt:
+ld A,(ccmdb)
+sub A,op_batt
+jp nz,check_batt_end
+call annc_batt 
+jp cmd_loop
+check_batt_end:
+
 ; If we get here, the opcode is not valid, so abandon the command.
 
 jp cmd_done     
@@ -1525,38 +1591,115 @@ main:
 
 seti
 
+; Turn on the lamp.
+
+ld A,0x01
+ld (mmu_led),A
+
 ; Initialize the stack pointer.
 
 ld HL,stack_bot
 ld SP,HL
 
-; Turn on the lamp and wait. This is the start-up flash.
+; Configure critical control space registers.
 
-ld A,0x01
-ld (mmu_led),A
-ld A,lon_ms
-call delay_ms
+ld A,0             ; Prepare zeros to write.
+ld (mmu_imsk),A    ; Mask all interrupts.
+ld A,0xFF          ; Prepare ones to write.
+ld (mmu_irst),A    ; Reset all interrupts.
+ld A,def_fck       ; Write the default fast clock mask
+ld (mmu_fck),A     ; to the ring oscillator.
 
 ; Move into boost to speed up initialization.
 
 ld A,0x03 
 ld (mmu_ccr),A 
 
-; Configure control space registers.
+; Configure more control space registers.
 
 ld A,0             ; Prepare zeros to write.
-ld (mmu_acfg),A    ; Select AC coupling and Xoff.
 ld (mmu_dfr),A     ; Clear diagnostic flags
-ld (mmu_imsk),A    ; Mask all interrupts.
 ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
-ld A,0xFF          ; Prepare ones to write.
-ld (mmu_irst),A    ; Reset all interrupts.
-ld A,rf_low        ; Write the radio frequency
+ld A,def_rf        ; Write the default radio frequency
 ld (mmu_rfc),A     ; calibration to the firmware.
-ld A,fck_mask      ; Writ the fast clock mask
-ld (mmu_fck),A     ; to the ring oscillator.
+
+; Assign a default value to the device identifier.
+
+ld HL,def_id       ; Write default device
+push H             ; identifier
+pop A              ; HI byte
+ld (id_h),A        ; and
+push L             ; LO byte to
+pop A              ; their storage
+ld (id_l),A        ; locations.
+
+; Read the calibration block into the scratchpad.
+
+ld HL,calib_bot
+push H
+pop A
+and A,0x07
+or A,nvm_addr
+push A
+pop H
+ld A,calib_len
+push A
+pop C
+ld IX,scr_bot
+call i2c_rd
+
+; Check the calibration key.
+
+ld HL,calib_key
+ld A,(calib_keyh)
+push A
+pop B
+push H
+pop A
+sub A,B
+jp nz,main_config
+ld A,(calib_keyl)
+push A
+pop B
+push L
+pop A
+sub A,B
+jp nz,main_config
+
+; If the calibration key was correct, copy the contents
+; of our NVM calibration into registers. We begin by
+; reading the radio frequency calibration an writing to
+; its control register.
+
+ld A,(calib_rf) 
+ld (mmu_rfc),A
+
+; Read and transfer the fast clock mask, but only if
+; it is non-zero.
+
+ld A,(calib_fck) 
+sub A,0
+jp z,main_fck_done
+ld (mmu_fck),A
+main_fck_done:
+
+; Read and transfer the device identifier, but only if 
+; the bottom nibble is neither 0xF nor 0x0.
+
+ld A,(calib_idl)
+sub A,0x00
+jp z,main_id_done
+sub A,0x0F
+jp z,main_id_done
+ld A,(calib_idh) 
+ld (id_h),A
+ld A,(calib_idl)
+ld (id_l),A
+main_id_done:
 
 ; Configure analog inputs.
+
+main_config:
 
 ld A,1
 ld (x1_xpd),A
@@ -1579,7 +1722,9 @@ ld (mmu_x3cfg),A
 ld A,8
 ld (x4_xpd),A
 ld (x4_idx),A
-ld A,adc_shift0
+ld A,0x01
+ld (x4_ss),A
+ld A,adc_x4ss
 ld (mmu_x4cfg),A
 
 ld A,69
@@ -1643,10 +1788,13 @@ ld A,0
 ld (nvm_xah),A
 ld (nvm_xal),A
 
-; Turn off the lamp and move out of boost. This is the end of the start-up flash.
+; Turn off the lamp. This is the end of the start-up flash.
 
 ld A,0x00
 ld (mmu_led),A
+
+; Move out of boost.
+
 ld A,0x00
 ld (mmu_ccr),A 
 

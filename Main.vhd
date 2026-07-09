@@ -89,8 +89,13 @@
 -- sampling of chaotic signals without low-pass filtering.
 
 -- V1.15 [08-JUL-26] Ring oscillator now software-programmable with eight-bit
--- mask written to location mmu_fck. Fix bug in X4SS logic. When we write to
--- the X4SS bit, not only to we set X4SS, but we also strobe X4SSS.
+-- mask written to location mmu_fck. Fix bug in X4SS implementation.
+
+-- V1.16 [09-JUL-26] Calibration now being read from NVM. Can change RF
+-- calibration, ring oscillator frequency, and set the device identifier from
+-- our Telemetry Manager. Check for bad values of ID and mask. Combine Lon and 
+-- Loff into Flash operation. Add and implement software reset operation. New
+-- operation code values.
 
 library ieee;  
 use ieee.std_logic_1164.all;
@@ -232,8 +237,7 @@ architecture behavior of main is
 -- Sample Controller
 	signal SCRUN, -- Sample Controller Run
 		SCBSY, -- Sample Controller Busy
-		X4SS, -- Channel X4 Single Sample
-		X4SSS -- X4SS Strobe
+		X4SS -- Channel X4 Single Sample
 		: boolean := false;
 	attribute syn_keep of SCRUN, SCBSY : signal is true;
 	attribute nomerge of SCRUN, SCBSY : signal is "";  
@@ -569,7 +573,6 @@ begin
 			ACCRST <= '1';
 			SMWRCPU	<= '1';
 			X4SS <= false;
-			X4SSS <= false;
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
 		-- and transmit activity. Some signals we assert only for one CK period, and 
@@ -581,7 +584,6 @@ begin
 			ACCRST <= '0';
 			SMWRCPU <= '0';
 			int_rst <= (others => '0');
-			X4SSS <= false;
 			if CPUDS and CPUWR then 
 				if (all_bits >= ctrl_bot) and (all_bits <= ctrl_top) then
 					case bottom_bits is
@@ -729,7 +731,6 @@ begin
 						when mmu_x4cfg =>
 							x4_shift <= cpu_data_out(2 downto 0);
 							X4SS <= (cpu_data_out(3) = '1');
-							X4SSS <= (cpu_data_out(3) = '1');
 
 						-- For all other addresses, we have no bits to set.
 						-- he shadow RAM is recording all writes to these 
@@ -1147,11 +1148,13 @@ begin
 			end if;
 		end if;
 		
-		if X4SSS then
+		if RESET = '1' then
 			X4EN := true;
 		elsif rising_edge(FCK) then
-			if (state = sc_wait) then
-				X4EN := not X4SS;
+			if (ACCRST = '1') and (sample_sel = x4_sel) then
+				X4EN := true;
+			elsif (state = x4_wait) and X4SS then
+				X4EN := false;
 			end if;
 		end if;
 	end process;
