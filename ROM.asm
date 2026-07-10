@@ -100,16 +100,17 @@ const conf_len      128 ; Number of bytes to read
 const conf_keyh  0x0300 ; Configuration Key, HI byte
 const conf_keyl  0x0301 ; Configuration Key, LO byte
 
-; We have a few reserved bytes here for version and date 
-; codes to be implemented later.
+; We have a reserved bytes here for version and date codes
+; to be implemented later.
 
-const conf_res1  0x0303
-const conf_res2  0x0304 
-const conf_res3  0x0305 
-const conf_res4  0x0306 
-const conf_res5  0x0307 
-const conf_res6  0x0308
-const conf_res7  0x0309 
+const conf_res1  0x0302
+const conf_res2  0x0303
+const conf_res3  0x0304 
+const conf_res4  0x0305 
+const conf_res5  0x0306 
+const conf_res6  0x0307 
+const conf_res7  0x0308
+const conf_res8  0x0309 
 
 ; The telemetry protocol transmit period is the number of 
 ; 1024 SPS periods between transmit interrupts. This will
@@ -123,7 +124,7 @@ const tp_txp     0x030A ; Telemetry Protocol Transmit Period
 ; The DC input value chooses AC or DC coupling for X1-X3.
 ; If 0x00, we have AC coupling. If 0x01, DC coupling.
 
-const dc_in      0x030B ; X1-X3 DC-Coupled
+const dc_in      0x030 ; X1-X3 DC-Coupled
 
 ; Configuration of X1-X4 input sampling. The sample 
 ; configurations are written once to their respective
@@ -186,23 +187,23 @@ const temp_svl   0x0327 ; Saved, LO
 ; frequency. The range is a code for the acceleration 
 ; dynamic range.
 
-const acc_xch    0x0330 ; Transmit Channel
-const acc_xpd    0x0331 ; Transmit Period
-const acc_idx    0x0332 ; Index
-const bma_state  0x0333 ; Enable or Disable
-const bma_rate   0x0334 ; Update Rate
-const bma_range  0x0335 ; Dynamic Range
+const acc_xch    0x0328 ; Transmit Channel
+const acc_xpd    0x0329 ; Transmit Period
+const acc_idx    0x032A ; Index
+const bma_state  0x032B ; Enable or Disable
+const bma_rate   0x032C ; Update Rate
+const bma_range  0x032D ; Dynamic Range
 
 ; Configuration Variables: NVM Transmission. Each transmit
 ; sample is a new byte read from the NVM, in which the top
 ; byte is the byte read and the bottom byte is the bottom
 ; eight bits of the address.
 
-const nvm_xch    0x0340 ; Transmit Channel
-const nvm_xpd    0x0341 ; Transmit Period
-const nvm_idx    0x0342 ; Index
-const nvm_xah    0x0343 ; Transmit Address, HI
-const nvm_xal    0x0344 ; Transmit Address, LO
+const nvm_xch    0x0330 ; Transmit Channel
+const nvm_xpd    0x0331 ; Transmit Period
+const nvm_idx    0x0332 ; Index
+const nvm_xah    0x0333 ; Transmit Address, HI
+const nvm_xal    0x0334 ; Transmit Address, LO
 
 ; Variables: These are used by the program during 
 ; operation, not just during initialization.
@@ -1416,17 +1417,15 @@ call get_cmd_byte
 ld (sack_key),A
 
 ; The reset instruction. In order to reset the CPU, we must
-; move out of boost, delay a bit, and write to the software 
-; reset location. After that we wait.
+; move out of boost and write to the software reset location.
 
 check_reset:
 ld A,(ccmdb)
 sub A,op_reset
 jp nz,check_reset_end
+call annc_ack 
 ld A,0x00
-ld (mmu_ccr),A 
-ld A,0xFF
-dly A
+ld (mmu_ccr),A
 ld A,0x01
 ld (mmu_rst),A
 wait
@@ -1618,9 +1617,9 @@ pop F
 ret
 
 ; -----------------------------------------------------------------
-; The main program. We begin by initializing the device, which
-; includes initializing the stack pointer, variables, and interrupts.
-; The main program uses IY to store the user program pointer.
+; The main program. We begin with initialization. During the 
+; initialization, the indicator lamp is on and the CPU is running 
+; in slow mode.
 
 main:
 
@@ -1638,7 +1637,7 @@ ld (mmu_led),A
 ld HL,stack_bot
 ld SP,HL
 
-; Configure critical control space registers.
+; Configure control space registers with default values.
 
 ld A,0             ; Prepare zeros to write.
 ld (mmu_imsk),A    ; Mask all interrupts.
@@ -1646,14 +1645,6 @@ ld A,0xFF          ; Prepare ones to write.
 ld (mmu_irst),A    ; Reset all interrupts.
 ld A,def_fck       ; Write the default fast clock mask
 ld (mmu_fck),A     ; to the ring oscillator.
-
-; Move into boost to speed up initialization.
-
-ld A,0x03 
-ld (mmu_ccr),A 
-
-; Configure more control space registers.
-
 ld A,0             ; Prepare zeros to write.
 ld (mmu_dfr),A     ; Clear diagnostic flags
 ld (mmu_i2cZ1),A   ; Set I2C's SDA to Z.
@@ -1670,7 +1661,8 @@ push L             ; LO byte to
 pop A              ; their storage
 ld (id_l),A        ; locations.
 
-; Copy the calibration block into the scratchpad.
+; Start calibration. We copy the calibration block into 
+; the scratchpad.
 
 ld HL,calib_bot
 push H
@@ -1685,7 +1677,9 @@ pop C
 ld IX,scr_bot
 call i2c_rd
 
-; Check the calibration key.
+; Check the calibration key. If valid, we apply the 
+; calibration values. If not valid, we retain our default
+; values and jump to configuration.
 
 ld HL,calib_key
 ld A,(calib_keyh)
@@ -1703,9 +1697,7 @@ pop A
 sub A,B
 jp nz,main_config
 
-; If the calibration key was correct, copy the contents
-; of our NVM calibration into registers. We begin by
-; reading the radio frequency calibration an writing to
+; Read the radio frequency calibration and write to
 ; its control register.
 
 ld A,(calib_rf) 
@@ -1761,10 +1753,12 @@ ld A,(calib_idl)
 ld (id_l),A
 main_id_done:
 
-; Copy the configuration block into the configuration area
-; of the main program variable space.
+; Start configuration. 
 
 main_config:
+
+; Copy the configuration block into the configuration area
+; of the main program variable space.
 
 ld HL,config_bot
 push H
@@ -1780,7 +1774,8 @@ ld IX,var_bot
 call i2c_rd
 
 ; Check the configuration key. If it is valid, jump ahead to
-; and apply the configuration.
+; apply the configuration. Otherwise we are going to create
+; a default configuration.
 
 ld HL,config_key
 ld A,(conf_keyh)
@@ -1896,8 +1891,7 @@ ld A,0
 ld (nvm_xah),A
 ld (nvm_xal),A
 
-; Apply the configuration values to the control registers
-; and sensors as necessary.
+; Apply configuration to control registers and sensors.
 
 main_apply_config:
 
@@ -1920,11 +1914,6 @@ call bma_config
 
 ld A,0x00
 ld (mmu_led),A
-
-; Move out of boost.
-
-ld A,0x00
-ld (mmu_ccr),A 
 
 ; Enable interrupts.
 
