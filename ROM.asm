@@ -93,41 +93,78 @@ const calib_rf   0x0205 ; Radio Frequency Low Calibration
 ; bottom 128 bytes of the 256-byte program variable space.
 ; A configuration read begins by reading the first sixteen
 ; bytes from NVM. The first two must match the configuration
-; key or else the configuration variables will not be 
-; over-written, but will continue to hold their default
-; values.
+; key or else the configuration variables will over-written
+; by default values.
 
 const conf_len      128 ; Number of bytes to read
 const conf_keyh  0x0300 ; Configuration Key, HI byte
 const conf_keyl  0x0301 ; Configuration Key, LO byte
 
-; Configuration Variables: Amplifier and Sampling. For each 
-; of the four biopotential inputs, we have a sample index,
-; transmit period, sample storage base address in the sample
-; memory, a sample control command that includes the number
-; of time the samples must be shifted left before storage,
-; and a transmit channel number. The ordering of these in
-; memory matches the order in which we use them in the 
-; interrupt routine. We dedicate sixteen bytes of variable
-; space to each of the four inputs so that we can step 
-; through the inputs by adding sixteen to an index register
-; and find in memory all the information we need to read,
-; shift, and store a sample.
+; We have a few reserved bytes here for version and date 
+; codes to be implemented later.
 
-const x1_xpd     0x0310 ; Transmit Period
-const x1_idx     0x0311 ; Sample Index
-const x1_xch     0x0312 ; Transmit Channel Number
-const x2_xpd     0x0313 ; Transmit Period
-const x2_idx     0x0314 ; Sample Index
-const x2_xch     0x0315 ; Transmit Channel Number
-const x3_xpd     0x0316 ; Transmit Period
-const x3_idx     0x0317 ; Sample Index
-const x3_xch     0x0318 ; Transmit Channel Number
-const x4_xpd     0x0319 ; Transmit Period
-const x4_idx     0x031A ; Sample Index
-const x4_xch     0x031B ; Transmit Channel Number
-const dc_in      0x031C ; X1-X3 DC-Coupled
-const x4_ss      0x031D ; X4 Single Sample
+const conf_res1  0x0303
+const conf_res2  0x0304 
+const conf_res3  0x0305 
+const conf_res4  0x0306 
+const conf_res5  0x0307 
+const conf_res6  0x0308
+const conf_res7  0x0309 
+
+; The telemetry protocol transmit period is the number of 
+; 1024 SPS periods between transmit interrupts. This will
+; be the shortest of the transmit periods for all enabled
+; channels. The Telemetry Manager tool in LWDAQ will
+; figure out from the user's chosen configuration what
+; this period should be.
+
+const tp_txp     0x030A ; Telemetry Protocol Transmit Period
+
+; The DC input value chooses AC or DC coupling for X1-X3.
+; If 0x00, we have AC coupling. If 0x01, DC coupling.
+
+const dc_in      0x030B ; X1-X3 DC-Coupled
+
+; Configuration of X1-X4 input sampling. The sample 
+; configurations are written once to their respective
+; control registers during initialization. The bits 0-2
+; of the configuration the number of left shifts applied 
+; to each sample before it is added to the accumulator. In 
+; the case of X4, and X4 only, bit 3 disables accumulation
+; so that X4 is sampled only once for each transmit sample.
+
+const x1_scfg    0x030C ; X1 Sample Configuration
+const x2_scfg    0x030D ; X2 Sample Configuration
+const x3_scfg    0x030E ; X3 Sample Configuration
+const x4_scfg    0x030F ; X4 Sample Configuration
+
+; Configuration of X1-X4 transmission. For each input we 
+; have a transmit period, transmit index, transmit channel 
+; number, and sample configuration. The transmit period is 
+; the number of transmit interrupts between transmit samples. 
+; For at least one telemetry channel, this value will be 
+; one: the telemetry channel with the fastest transmit 
+; rate. But this channel may not be one X1-X4. We disable 
+; any of X1-X4 by setting its transmit period to zero. The 
+; transmit index is the counter that keeps track of when to 
+; transmit. The channel number is the telemetry channel this 
+; input uses for its transmit samples. The ordering of the
+; transmit period, transmit index, and telemetry channel
+; in memory matches the order in which we use them in the 
+; interrupt routine. 
+
+const x1_xpd     0x0310 ; X1 Transmit Period
+const x1_idx     0x0311 ; X1 Transmit Index
+const x1_xch     0x0312 ; X1 Transmit Channel Number
+const x2_xpd     0x0313 ; X2 Transmit Period
+const x2_idx     0x0314 ; X2 Transmit Index
+const x2_xch     0x0315 ; X2 Transmit Channel Number
+const x3_xpd     0x0316 ; X3 Transmit Period
+const x3_idx     0x0317 ; X3 Transmit Index
+const x3_xch     0x0318 ; X3 Transmit Channel Number
+const x4_xpd     0x0319 ; X4 Transmit Period
+const x4_idx     0x031A ; X4 Transmit Index
+const x4_xch     0x031B ; X4 Transmit Channel Number
 
 ; Configuration Variables: Temperature Sensor. The measurement
 ; period is in multiples of 250 ms. We have a two-byte timer 
@@ -822,7 +859,7 @@ ld A,(IX)
 add A,0
 jp z,int_xmit_x_next
 
-; Decrement the sample index. If it is not yet zero after the
+; Decrement the transmit index. If it is not yet zero after the
 ; decrement, we are not ready to transmit. Decrement IX so it
 ; points to the transmit period and move on to the next input.
 
@@ -833,10 +870,10 @@ ld (IX),A
 dec IX ; Transmit Period
 jp nz,int_xmit_x_next
 
-; Set the sample index equal to the transmit period.
+; Set the transmit index equal to the transmit period.
 
 ld A,(IX)
-inc IX ; Sample Index
+inc IX ; Transmit Index
 ld (IX),A
 
 ; Select this input's sample in the sample memory.
@@ -887,7 +924,7 @@ ld (mmu_smcr),A
 ; Done with this input, time to move on to the next one, but 
 ; first move IX back to point to this channels transmit period.
 
-dec IX ; Sample Index
+dec IX ; Transmit Index
 dec IX ; Sample Period
 
 int_xmit_x_next:
@@ -1633,7 +1670,7 @@ push L             ; LO byte to
 pop A              ; their storage
 ld (id_l),A        ; locations.
 
-; Read the calibration block into the scratchpad.
+; Copy the calibration block into the scratchpad.
 
 ld HL,calib_bot
 push H
@@ -1674,17 +1711,44 @@ jp nz,main_config
 ld A,(calib_rf) 
 ld (mmu_rfc),A
 
-; Read and transfer the fast clock mask, but only if
-; it is non-zero.
+; Check to see if fast clock mask calibration value is one
+; of the eight valid bit masks. If so, load it into the 
+; fast clock mask register. Otherwise, stick with the default
+; value already loaded.
 
 ld A,(calib_fck) 
-sub A,0
-jp z,main_fck_done
+sub A,bit0_mask
+jp z,main_fck_okay
+ld A,(calib_fck) 
+sub A,bit1_mask
+jp z,main_fck_okay
+ld A,(calib_fck) 
+sub A,bit2_mask
+jp z,main_fck_okay
+ld A,(calib_fck) 
+sub A,bit3_mask
+jp z,main_fck_okay
+ld A,(calib_fck) 
+sub A,bit4_mask
+jp z,main_fck_okay
+ld A,(calib_fck) 
+sub A,bit5_mask
+jp z,main_fck_okay
+ld A,(calib_fck) 
+sub A,bit6_mask
+jp z,main_fck_okay
+ld A,(calib_fck) 
+sub A,bit7_mask
+jp z,main_fck_okay
+jp main_fck_done
+main_fck_okay:
+ld A,(calib_fck)
 ld (mmu_fck),A
 main_fck_done:
 
-; Read and transfer the device identifier, but only if 
-; the bottom nibble is neither 0xF nor 0x0.
+; Check to see if the device identifier calibration value has
+; a valid lower nibble: neither 0xF nor 0x0. If valid, transfer
+; to the device idendtifier memory locations.
 
 ld A,(calib_idl)
 sub A,0x00
@@ -1697,54 +1761,100 @@ ld A,(calib_idl)
 ld (id_l),A
 main_id_done:
 
-; Configure analog inputs.
+; Copy the configuration block into the configuration area
+; of the main program variable space.
 
 main_config:
+
+ld HL,config_bot
+push H
+pop A
+and A,0x07
+or A,nvm_addr
+push A
+pop H
+ld A,conf_len
+push A
+pop C
+ld IX,var_bot
+call i2c_rd
+
+; Check the configuration key. If it is valid, jump ahead to
+; and apply the configuration.
+
+ld HL,config_key
+ld A,(conf_keyh)
+push A
+pop B
+push H
+pop A
+sub A,B
+jp nz,main_def_config
+ld A,(conf_keyl)
+push A
+pop B
+push L
+pop A
+sub A,B
+jp nz,main_def_config
+jp main_apply_config
+
+; The configuration key is invalid, so write default values to
+; the configuration array.
+
+main_def_config:
+
+; Default transmit interrupt period in multiples of 1/1024 SPS.
+
+ld A,2
+ld (tp_txp),A
+
+; Default AC/DC coupling for X1-X3.
+
+ld A,0x01
+ld (dc_in),A
+
+; Default configuration of X1.
 
 ld A,1
 ld (x1_xpd),A
 ld (x1_idx),A
 ld A,adc_shift3
-ld (mmu_x1cfg),A
+ld (x1_scfg),A
+ld A,69
+ld (x1_xch),A  
+
+; Default configuration of X2.
 
 ld A,2
 ld (x2_xpd),A
 ld (x2_idx),A
 ld A,adc_shift2
-ld (mmu_x2cfg),A
+ld (x2_scfg),A
+ld A,70
+ld (x2_xch),A
+
+; Default configuration of X3.
 
 ld A,4
 ld (x3_xpd),A
 ld (x3_idx),A
 ld A,adc_shift1
-ld (mmu_x3cfg),A
+ld (x3_scfg),A
+ld A,71
+ld (x3_xch),A
+
+; Default configuration of X4.
 
 ld A,8
 ld (x4_xpd),A
 ld (x4_idx),A
-ld A,0x01
-ld (x4_ss),A
 ld A,adc_x4ss
-ld (mmu_x4cfg),A
-
-ld A,69
-ld (x1_xch),A  
-ld A,70
-ld (x2_xch),A
-ld A,71
-ld (x3_xch),A
+ld (x4_scfg),A
 ld A,72
 ld (x4_xch),A
 
-ld A,0x01
-ld (dc_in),A
-ld (mmu_acfg),A
-
-ld A,2
-ld (mmu_i0p),A
-
-; Configure the TMP117 temperature sensor and its telemetry
-; channel.
+; Default configuration for TMP117 temperature sensor.
 
 ld A,9
 ld (temp_xch),A
@@ -1759,10 +1869,8 @@ ld (temp_mpd),A
 ld (temp_mth),A
 ld A,0
 ld (temp_mtl),A
-call tmp_single
 
-; Configure the BMA423 accelerometer and its telemetry
-; channel.
+; Deafult configuration the BMA423 accelerometer.
 
 ld A,14
 ld (acc_xch),A
@@ -1775,9 +1883,9 @@ ld A,bma_1hz
 ld (bma_rate),A
 ld A,bma_2g
 ld (bma_range),A
-call bma_config
 
-; Configure the non-volatile memory telemetry channel.
+; Default configuration of the non-volatile reporting
+; channel.
 
 ld A,13
 ld (nvm_xch),A
@@ -1787,6 +1895,26 @@ ld (nvm_idx),A
 ld A,0
 ld (nvm_xah),A
 ld (nvm_xal),A
+
+; Apply the configuration values to the control registers
+; and sensors as necessary.
+
+main_apply_config:
+
+ld (dc_in),A
+ld (mmu_acfg),A
+ld A,(tp_txp)
+ld (mmu_i0p),A
+ld A,(x1_scfg)
+ld (mmu_x1cfg),A
+ld A,(x2_scfg)
+ld (mmu_x2cfg),A
+ld A,(x3_scfg)
+ld (mmu_x3cfg),A
+ld A,(x4_scfg)
+ld (mmu_x4cfg),A
+call tmp_single
+call bma_config
 
 ; Turn off the lamp. This is the end of the start-up flash.
 
