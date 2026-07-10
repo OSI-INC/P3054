@@ -10,8 +10,8 @@ const config_key 0x5678 ; Configuration Key
 ; Default values for calibration and configuration.
 
 const def_id     0xAA55 ; Device ID, low nibble 1-E only.
-const def_rf         14 ; Radio Frequency Low Calibration.
-const def_fck      0x10 ; Fast Clock Mask
+const def_rf         13 ; Radio Frequency Low Calibration.
+const def_fck      0x20 ; Fast Clock Mask
 
 ; CPU Address Map Boundaries. The first 256-byte block is  
 ; the control register space. This is shadowed by RAM so
@@ -1617,9 +1617,9 @@ pop F
 ret
 
 ; -----------------------------------------------------------------
-; The main program. We begin with initialization. During the 
-; initialization, the indicator lamp is on and the CPU is running 
-; in slow mode.
+; The main program. We begin by initializing the device, which
+; includes initializing the stack pointer, variables, and interrupts.
+; The main program uses IY to store the user program pointer.
 
 main:
 
@@ -1637,7 +1637,7 @@ ld (mmu_led),A
 ld HL,stack_bot
 ld SP,HL
 
-; Configure control space registers with default values.
+; Configure registers and output pins.
 
 ld A,0             ; Prepare zeros to write.
 ld (mmu_imsk),A    ; Mask all interrupts.
@@ -1661,8 +1661,7 @@ push L             ; LO byte to
 pop A              ; their storage
 ld (id_l),A        ; locations.
 
-; Start calibration. We copy the calibration block into 
-; the scratchpad.
+; Copy the calibration block into the scratchpad.
 
 ld HL,calib_bot
 push H
@@ -1677,9 +1676,9 @@ pop C
 ld IX,scr_bot
 call i2c_rd
 
-; Check the calibration key. If valid, we apply the 
-; calibration values. If not valid, we retain our default
-; values and jump to configuration.
+; Check the calibration key. If valid, we will apply
+; the calibration constants. Otherwise we will stick
+; with our default values. 
 
 ld HL,calib_key
 ld A,(calib_keyh)
@@ -1688,16 +1687,18 @@ pop B
 push H
 pop A
 sub A,B
-jp nz,main_config
+jp nz,main_boost
 ld A,(calib_keyl)
 push A
 pop B
 push L
 pop A
 sub A,B
-jp nz,main_config
+jp nz,main_boost
 
-; Read the radio frequency calibration and write to
+; If the calibration key was correct, copy the contents
+; of our NVM calibration into registers. We begin by
+; reading the radio frequency calibration an writing to
 ; its control register.
 
 ld A,(calib_rf) 
@@ -1753,9 +1754,13 @@ ld A,(calib_idl)
 ld (id_l),A
 main_id_done:
 
-; Start configuration. 
+; Put the CPU into boost mode to accelerate the remaining 
+; initialization.
 
-main_config:
+main_boost:
+
+ld A,0x03 
+ld (mmu_ccr),A 
 
 ; Copy the configuration block into the configuration area
 ; of the main program variable space.
@@ -1774,8 +1779,7 @@ ld IX,var_bot
 call i2c_rd
 
 ; Check the configuration key. If it is valid, jump ahead to
-; apply the configuration. Otherwise we are going to create
-; a default configuration.
+; and apply the configuration.
 
 ld HL,config_key
 ld A,(conf_keyh)
@@ -1891,7 +1895,8 @@ ld A,0
 ld (nvm_xah),A
 ld (nvm_xal),A
 
-; Apply configuration to control registers and sensors.
+; Apply the configuration values to the control registers
+; and sensors as necessary.
 
 main_apply_config:
 
@@ -1914,6 +1919,11 @@ call bma_config
 
 ld A,0x00
 ld (mmu_led),A
+
+; Move out of boost.
+
+ld A,0x00
+ld (mmu_ccr),A 
 
 ; Enable interrupts.
 
