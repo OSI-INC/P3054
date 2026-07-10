@@ -124,7 +124,7 @@ const tp_txp     0x030A ; Telemetry Protocol Transmit Period
 ; The DC input value chooses AC or DC coupling for X1-X3.
 ; If 0x00, we have AC coupling. If 0x01, DC coupling.
 
-const dc_in      0x030 ; X1-X3 DC-Coupled
+const dc_in      0x030B ; X1-X3 DC-Coupled
 
 ; Configuration of X1-X4 input sampling. The sample 
 ; configurations are written once to their respective
