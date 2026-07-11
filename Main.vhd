@@ -912,8 +912,8 @@ begin
 	Telemetry_Manager : process (RCK) is 
 		constant tm_max : integer := 31;
 		constant tm_idle : integer := tm_max;
-		constant tm_update : integer := tm_max - 2;
-		constant tm_sample : integer := tm_max - 4;
+		constant tm_update : integer := tm_max - 1;
+		constant tm_sample : integer := tm_max - 2;
 		variable state, next_state : integer range 0 to tm_max := 0;
 		variable TMRUN : boolean;
 		variable tx_index : integer range 0 to 31;

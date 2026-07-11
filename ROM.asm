@@ -11,7 +11,7 @@ const config_key 0x5678 ; Configuration Key
 
 const def_id     0xAA55 ; Device ID, low nibble 1-E only.
 const def_rf         13 ; Radio Frequency Low Calibration.
-const def_fck      0x20 ; Fast Clock Mask
+const def_fck      0x10 ; Fast Clock Mask
 
 ; CPU Address Map Boundaries. The first 256-byte block is  
 ; the control register space. This is shadowed by RAM so
@@ -706,132 +706,6 @@ jp z,int_xmit_done  ; skip transmit if not set.
 ld A,bit0_mask      ; Reset this interrupt
 ld (mmu_irst),A     ; with the bit zero mask.
 
-; Transmit a temperature measurement. After that, we decrement
-; the two-byte temperature period counter. When it reaches zero,
-; we update the temperature measurement and reset the counter.
-
-int_xmit_temp:
-ld A,(temp_xpd)
-add A,0
-jp z,int_xmit_temp_done
-ld A,(temp_idx)
-add A,0
-dec A
-ld (temp_idx),A
-jp nz,int_xmit_temp_done
-ld A,(temp_xpd)
-ld (temp_idx),A
-ld A,(temp_xch)
-ld (mmu_xch),A
-ld A,(temp_svh)
-ld (mmu_xhb),A
-ld A,(temp_svl)
-ld (mmu_xlb),A
-ld A,tx_txi
-ld (mmu_xcr),A
-ld A,tx_delay 
-dly A
-ld A,(temp_mtl)
-sub A,1
-ld (temp_mtl),A
-ld A,(temp_mth)
-sbc A,0
-ld (temp_mth),A
-jp p,int_xmit_temp_done
-ld A,(temp_mpd)
-ld (temp_mth),A
-ld A,0
-ld (temp_mtl),A
-call tmp_single
-int_xmit_temp_done:
-
-; Transmit an accelerometer measurement. The byte ordering
-; on the accelerometer is little-endian.
-
-int_xmit_acc:
-ld A,(acc_xpd)
-add A,0
-jp z,int_xmit_acc_done
-ld A,(acc_idx)
-dec A
-ld (acc_idx),A
-jp nz,int_xmit_acc_done
-ld A,(acc_xpd)
-ld (acc_idx),A
-ld A,bma_addr
-push A
-pop H
-ld A,bma_x
-push A
-pop L
-ld IX,scr_bot
-ld A,2
-push A
-pop C
-call i2c_rd
-dec IX
-ld A,(IX)
-add A,off_16bs   
-ld (mmu_xhb),A
-dec IX
-ld A,(IX)
-ld (mmu_xlb),A
-ld A,(acc_xch)
-ld (mmu_xch),A
-ld A,tx_txi 
-ld (mmu_xcr),A
-ld A,tx_delay 
-dly A
-int_xmit_acc_done:
-
-; Transmit a byte from the non-volatile memory (NVM). We 
-; transmit the byte as the top byte in our two-byte
-; telemetry sample. We put the bottom eight bits of the 
-; NVM address in the bottom byte of the sample. Each
-; time we transmit a byte, we increment an address counter
-; so that we read all the bytes in turn.
-
-int_xmit_nvm:
-ld A,(nvm_xpd)
-add A,0
-jp z,int_xmit_nvm_done
-ld A,(nvm_idx)
-dec A
-ld (nvm_idx),A
-jp nz,int_xmit_nvm_done
-ld A,(nvm_xpd)
-ld (nvm_idx),A
-ld A,(nvm_xal)
-add A,1
-ld (nvm_xal),A
-push A
-pop L
-ld A,(nvm_xah)
-adc A,0
-and A,0x07
-ld (nvm_xah),A
-or A,nvm_addr
-push A
-pop H
-ld IX,scr_bot
-ld A,1
-push A
-pop C
-call i2c_rd
-dec IX
-ld A,(IX)
-ld (mmu_xhb),A
-push L
-pop A
-ld (mmu_xlb),A
-ld A,(nvm_xch)
-ld (mmu_xch),A
-ld A,tx_txi 
-ld (mmu_xcr),A
-ld A,tx_delay 
-dly A
-int_xmit_nvm_done:
-
 ; Transmit accumulated X1-X4 samples.
 
 int_xmit_x:
@@ -949,6 +823,126 @@ jp int_xmit_x_loop
 ; Done with ADC readout and transmission.
 
 int_xmit_x_done:
+
+; Transmit a temperature measurement. After that, we decrement
+; the two-byte temperature period counter. When it reaches zero,
+; we update the temperature measurement and reset the counter.
+
+int_xmit_temp:
+ld A,(temp_xpd)
+add A,0
+jp z,int_xmit_temp_done
+ld A,(temp_idx)
+add A,0
+dec A
+ld (temp_idx),A
+jp nz,int_xmit_temp_done
+ld A,(temp_xpd)
+ld (temp_idx),A
+ld A,(temp_xch)
+ld (mmu_xch),A
+ld A,(temp_svh)
+ld (mmu_xhb),A
+ld A,(temp_svl)
+ld (mmu_xlb),A
+ld A,tx_txi
+ld (mmu_xcr),A
+ld A,(temp_mtl)
+sub A,1
+ld (temp_mtl),A
+ld A,(temp_mth)
+sbc A,0
+ld (temp_mth),A
+jp p,int_xmit_temp_done
+ld A,(temp_mpd)
+ld (temp_mth),A
+ld A,0
+ld (temp_mtl),A
+call tmp_single
+int_xmit_temp_done:
+
+; Transmit an accelerometer measurement. The byte ordering
+; on the accelerometer is little-endian.
+
+int_xmit_acc:
+ld A,(acc_xpd)
+add A,0
+jp z,int_xmit_acc_done
+ld A,(acc_idx)
+dec A
+ld (acc_idx),A
+jp nz,int_xmit_acc_done
+ld A,(acc_xpd)
+ld (acc_idx),A
+ld A,bma_addr
+push A
+pop H
+ld A,bma_x
+push A
+pop L
+ld IX,scr_bot
+ld A,2
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
+add A,off_16bs   
+ld (mmu_xhb),A
+dec IX
+ld A,(IX)
+ld (mmu_xlb),A
+ld A,(acc_xch)
+ld (mmu_xch),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+int_xmit_acc_done:
+
+; Transmit a byte from the non-volatile memory (NVM). We 
+; transmit the byte as the top byte in our two-byte
+; telemetry sample. We put the bottom eight bits of the 
+; NVM address in the bottom byte of the sample. Each
+; time we transmit a byte, we increment an address counter
+; so that we read all the bytes in turn.
+
+int_xmit_nvm:
+ld A,(nvm_xpd)
+add A,0
+jp z,int_xmit_nvm_done
+ld A,(nvm_idx)
+dec A
+ld (nvm_idx),A
+jp nz,int_xmit_nvm_done
+ld A,(nvm_xpd)
+ld (nvm_idx),A
+ld A,(nvm_xal)
+add A,1
+ld (nvm_xal),A
+push A
+pop L
+ld A,(nvm_xah)
+adc A,0
+and A,0x07
+ld (nvm_xah),A
+or A,nvm_addr
+push A
+pop H
+ld IX,scr_bot
+ld A,1
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
+ld (mmu_xhb),A
+push L
+pop A
+ld (mmu_xlb),A
+ld A,(nvm_xch)
+ld (mmu_xch),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+int_xmit_nvm_done:
 
 ; Done with transmit interrupt. Make sure we are not transmitting before
 ; we leave.
@@ -1900,7 +1894,7 @@ ld (nvm_xal),A
 
 main_apply_config:
 
-ld (dc_in),A
+ld A,(dc_in)
 ld (mmu_acfg),A
 ld A,(tp_txp)
 ld (mmu_i0p),A
