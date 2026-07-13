@@ -97,6 +97,12 @@
 -- Loff into Flash operation. Add and implement software reset operation. New
 -- operation code values.
 
+-- V1.17 [10-JUL-26] Configuration from NVM implemented and tested. Can now
+-- configure all sensors and sample rates.
+
+-- V1.18 [13-JUL-26] The IPT starts executing its telemetry protocol when we
+-- wake it up.
+
 library ieee;  
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -237,10 +243,11 @@ architecture behavior of main is
 -- Sample Controller
 	signal SCRUN, -- Sample Controller Run
 		SCBSY, -- Sample Controller Busy
+		SCDONE, -- Sample Controller Done
 		X4SS -- Channel X4 Single Sample
 		: boolean := false;
-	attribute syn_keep of SCRUN, SCBSY : signal is true;
-	attribute nomerge of SCRUN, SCBSY : signal is "";  
+	attribute syn_keep of SCRUN, SCBSY, SCDONE : signal is true;
+	attribute nomerge of SCRUN, SCBSY,SCDONE : signal is "";  
 	signal x1_shift, x2_shift, x3_shift, x4_shift : std_logic_vector(2 downto 0);
 
 -- Sample Memory and Accumulator
@@ -269,8 +276,8 @@ architecture behavior of main is
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
 
 -- Clock Control. 
-	signal ENFCKCPU, -- Enable Fast Clock, from CPU
-		ENFCKTM, -- Enable Fast Clock, from Telemetry Manager
+	signal FCKENCPU, -- Fast Clock Enable from CPU
+		FCKENTM, -- Fast Clock from Telemetry Manager
 		BOOST, -- Boost CPU Clock
 		KEEPFCK, -- Keep FCK Running
 		RCKLO -- RCK is LO
@@ -278,8 +285,8 @@ architecture behavior of main is
 	signal SRCK, -- RCK Synchronized with FCK
 		SSRCK -- SRCK Delayed by one FCK Period
 		: std_logic; 
-	attribute syn_keep of BOOST, ENFCKCPU, ENFCKTM : signal is true;
-	attribute nomerge of BOOST, ENFCKCPU, ENFCKTM : signal is "";
+	attribute syn_keep of BOOST, FCKENCPU, FCKENTM : signal is true;
+	attribute nomerge of BOOST, FCKENCPU, FCKENTM : signal is "";
 	
 -- Diagnostic Flag Register
 	signal df_reg : std_logic_vector(3 downto 0);
@@ -386,7 +393,7 @@ begin
 
 -- The Fast Clock process produces FCK when one of several flags are asserted.
 -- The ring oscillator should be calibrated so that it produces FCK of 10 MHz.
-	FCKEN <= to_std_logic(ENFCKCPU or ENFCKTM or KEEPFCK or CPUISRV);
+	FCKEN <= to_std_logic(FCKENCPU or FCKENTM or KEEPFCK or CPUISRV);
 	Fast_Clock: entity ring_oscillator 
 		generic map (
 			num_gates => fck_num_gates,
@@ -556,7 +563,7 @@ begin
 		if (RESET = '1') then
 			TXI <= false;
 			TXWP <= false;
-			ENFCKCPU <= false;
+			FCKENCPU <= false;
 			BOOST <= false;
 			tx_channel <= tx_channel_default;
 			df_reg <= (others => '0');
@@ -653,7 +660,7 @@ begin
 						-- CPU's interrupt service flag has been set by the CPU
 						-- to indicate that it is servicing an interrupt.
 						when mmu_ccr  => 
-							ENFCKCPU <= (cpu_data_out(0) = '1');
+							FCKENCPU <= (cpu_data_out(0) = '1');
 							BOOST <= (cpu_data_out(1) = '1');
 							
 						-- The diagnostic flag register. These bits can be routed
@@ -920,7 +927,6 @@ begin
 		
 	begin
 		if RESET = '1' then
-			ENFCKTM <= false;
 			SCRUN <= false;
 			TMINT <= false;
 			TMRUN := false;
@@ -943,11 +949,9 @@ begin
 					TMINT <= true;
 				end if;
 			elsif (state = tm_sample) then
-				ENFCKTM <= true;
 				SCRUN <= true;
 				TMINT <= false;
 			elsif (state = tm_update) then
-				ENFCKTM <= false;
 				SCRUN <= false;
 				TMINT <= false;
 				if tx_index = 1 then
@@ -959,16 +963,24 @@ begin
 				if not TMRUN then
 					tx_index := to_integer(unsigned(int_period_0));
 				end if;
-				ENFCKTM <= false;
 				SCRUN <= false;
 				TMINT <= false;
 			else
-				ENFCKTM <= false;
 				SCRUN <= false;
 				TMINT <= false;
 			end if;
 			
 			state := next_state;
+		end if;
+		
+		if SCDONE then
+			FCKENTM <= false;
+		elsif rising_edge(RCK) then
+			if (state = tm_sample) then
+				FCKENTM <= true;
+			else
+				FCKENTM <= false;
+			end if;
 		end if;
 	end process;
 
@@ -1042,6 +1054,8 @@ begin
 	begin
 		if not SCRUN then
 			ADCRD <= false;
+			SCBSY <= false;
+			SCDONE <= false;
 			adc_sel <= x1_sel;
 			state := sc_idle;
 		elsif falling_edge(FCK) then
@@ -1138,6 +1152,7 @@ begin
 			
 			state := next_state;
 			SCBSY <= (state > sc_idle) and (state < sc_wait);
+			SCDONE <= (state = sc_wait);
 		end if;
 		
 		if RESET = '1' then
@@ -1760,5 +1775,6 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= df_reg(0);
+--	TP <= df_reg(0);
+	TP <= FCKEN;
 end behavior;

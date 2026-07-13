@@ -659,56 +659,29 @@ pop F
 ret
 
 ; ------------------------------------------------------------
-; The interrupt handler. Assumes that it interrupts a program
-; running off the slow clock. Boosts as quickly as possible to
-; fast clock, executes, then restores the clock. We handle the
-; user program interrupt, then stimulus interrupt, and finally
-; the transmit interrupt. By this means, when the interrupts
-; are coincident, the user program can affect the stimulus and
-; the stimulus can affect the transmission. The synchronizing
-; signal, for example, will reflect the most recent state of
-; the stimulus.
+; The interrupt handler. Handles the transmit interrupt. Assumes
+; no other interrupts are enabled. Resets all interrupts at start.
 
 interrupt:
 
-; Push A onto the stack. We are already in boost, provided that
-; we got here with an interrupt request.
+; Push F, A, B, and IX onto the stack. We are already in boost, provided that
+; we got here with an interrupt request. If any part of this interrupt needs
+; any other register, the routine must push and pop them itself.
 
-push A              ; Save A on stack
-push F              ; Save the flags onto the stack.
-
-; Set diagnostic flag zero.
-
-ld A,(mmu_dfr)      ; Load the diagnostic flag register.
-or A,bit0_mask      ; set bit zero and
-ld (mmu_dfr),A      ; write to diagnostic flag register.
-
-; Push all the registers, even if we don't use them in the interrupt
-; code. We want to protect the calling process from the user program.
-
+push F 
+push A 
 push B
-push C
-push D
-push E
-push H
-push L
 push IX
-push IY
 
-; Handle the transmit interrupt.
+; There is only one interrupt: the transmit interrupt. To save time, we
+; reset all interrupts.
 
-int_xmit:
-
-ld A,(mmu_irqb)     ; Read the interrupt request bits
-and A,bit0_mask     ; and test bit zero,
-jp z,int_xmit_done  ; skip transmit if not set.
-
-ld A,bit0_mask      ; Reset this interrupt
-ld (mmu_irst),A     ; with the bit zero mask.
+ld A,0xFF     
+ld (mmu_irst),A
 
 ; Transmit accumulated X1-X4 samples.
 
-int_xmit_x:
+int_x:
 
 ; The first input is X1. We store the address of its transmit
 ; period in IX. We will be incrementing and decrementing IX
@@ -724,7 +697,7 @@ pop B
 ; transmit period for one of X1-X4 and also that (adc_idx) 
 ; contains a the sample address of the same input.
 
-int_xmit_x_loop:
+int_x_loop:
 
 ; If the transmit period is zero, the input is disabled, so 
 ; move to the next input. Note that IX is pointing at this
@@ -732,7 +705,7 @@ int_xmit_x_loop:
 
 ld A,(IX)
 add A,0
-jp z,int_xmit_x_next
+jp z,int_x_next
 
 ; Decrement the transmit index. If it is not yet zero after the
 ; decrement, we are not ready to transmit. Decrement IX so it
@@ -743,7 +716,7 @@ ld A,(IX)
 dec A
 ld (IX),A
 dec IX ; Transmit Period
-jp nz,int_xmit_x_next
+jp nz,int_x_next
 
 ; Set the transmit index equal to the transmit period.
 
@@ -759,10 +732,10 @@ ld (mmu_smcr),A
 
 ; Make sure the transmitter is not busy.
 
-int_xmit_x_txw:
+int_x_txw:
 ld A,(mmu_sr)
 and A,sr_txa
-jp nz,int_xmit_x_txw
+jp nz,int_x_txw
 
 ; Read the accumulated sample provided by the sample memory
 ; and write to the sample transmitter.
@@ -802,14 +775,14 @@ ld (mmu_smcr),A
 dec IX ; Transmit Index
 dec IX ; Sample Period
 
-int_xmit_x_next:
+int_x_next:
 
 ; Check the sample address. If it is equal to address of the final
 ; input we are done with all of them.
 
 ld A,sm_x4
 sub A,B
-jp z,int_xmit_x_done
+jp z,int_x_done
 
 ; Prepare for the next input. We increment the sample address
 ; and move IX from this input's period to the next input's period.
@@ -818,25 +791,25 @@ inc B
 inc IX
 inc IX
 inc IX
-jp int_xmit_x_loop
+jp int_x_loop
 
 ; Done with ADC readout and transmission.
 
-int_xmit_x_done:
+int_x_done:
 
 ; Transmit a temperature measurement. After that, we decrement
 ; the two-byte temperature period counter. When it reaches zero,
 ; we update the temperature measurement and reset the counter.
 
-int_xmit_temp:
+int_temp:
 ld A,(temp_xpd)
 add A,0
-jp z,int_xmit_temp_done
+jp z,int_temp_done
 ld A,(temp_idx)
 add A,0
 dec A
 ld (temp_idx),A
-jp nz,int_xmit_temp_done
+jp nz,int_temp_done
 ld A,(temp_xpd)
 ld (temp_idx),A
 ld A,(temp_xch)
@@ -853,25 +826,28 @@ ld (temp_mtl),A
 ld A,(temp_mth)
 sbc A,0
 ld (temp_mth),A
-jp p,int_xmit_temp_done
+jp p,int_temp_done
 ld A,(temp_mpd)
 ld (temp_mth),A
 ld A,0
 ld (temp_mtl),A
 call tmp_single
-int_xmit_temp_done:
+int_temp_done:
 
 ; Transmit an accelerometer measurement. The byte ordering
 ; on the accelerometer is little-endian.
 
-int_xmit_acc:
+int_acc:
+push C
+push H
+push L
 ld A,(acc_xpd)
 add A,0
-jp z,int_xmit_acc_done
+jp z,int_acc_done
 ld A,(acc_idx)
 dec A
 ld (acc_idx),A
-jp nz,int_xmit_acc_done
+jp nz,int_acc_done
 ld A,(acc_xpd)
 ld (acc_idx),A
 ld A,bma_addr
@@ -896,7 +872,10 @@ ld A,(acc_xch)
 ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
-int_xmit_acc_done:
+pop L
+pop H
+pop C
+int_acc_done:
 
 ; Transmit a byte from the non-volatile memory (NVM). We 
 ; transmit the byte as the top byte in our two-byte
@@ -905,14 +884,17 @@ int_xmit_acc_done:
 ; time we transmit a byte, we increment an address counter
 ; so that we read all the bytes in turn.
 
-int_xmit_nvm:
+int_nvm:
+push C
+push H
+push L
 ld A,(nvm_xpd)
 add A,0
-jp z,int_xmit_nvm_done
+jp z,int_nvm_done
 ld A,(nvm_idx)
 dec A
 ld (nvm_idx),A
-jp nz,int_xmit_nvm_done
+jp nz,int_nvm_done
 ld A,(nvm_xpd)
 ld (nvm_idx),A
 ld A,(nvm_xal)
@@ -942,42 +924,26 @@ ld A,(nvm_xch)
 ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
-int_xmit_nvm_done:
+pop L
+pop H
+pop C
+int_nvm_done:
 
 ; Done with transmit interrupt. Make sure we are not transmitting before
 ; we leave.
 
-int_xmit_done_txw:
+int_done_txw:
 ld A,(mmu_sr)
 and A,sr_txa
-jp nz,int_xmit_done_txw
+jp nz,int_done_txw
 
-int_xmit_done:
+; Restore registers and return from interrupt.
 
-; Restore registers.
-
-int_done:
-pop IY
 pop IX
-pop L
-pop H
-pop E
-pop D
-pop C
 pop B
-
-; Clear diagnostic flag zero.
-
-ld A,(mmu_dfr)      ; Load the diagnostic flag register.
-and A,bit0_clr      ; Clear bit zero and
-ld (mmu_dfr),A      ; write to diagnostic flag register.
-
-
-; Restore flags and accumulator, return from interrupt.
-
-pop F               ; Restore the flags.
-pop A               ; Restore A.
-rti                 ; Return from interrupt.
+pop A
+pop F
+rti
 
 ; ------------------------------------------------------------
 ; Transmit an annoucement, which consists of two auxiliary 
@@ -1913,6 +1879,13 @@ call bma_config
 
 ld A,0x00
 ld (mmu_led),A
+
+; Enable interrupt zero, which will start the telemetry
+; protocol.
+
+ld A,(mmu_imsk)      
+or A,bit0_mask
+ld (mmu_imsk),A
 
 ; Move out of boost.
 
