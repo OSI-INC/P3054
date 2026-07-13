@@ -659,29 +659,156 @@ pop F
 ret
 
 ; ------------------------------------------------------------
-; The interrupt handler. Handles the transmit interrupt. Assumes
-; no other interrupts are enabled. Resets all interrupts at start.
+; The interrupt handler. Handles only the transmit interrupt.
+; Resets all interrupts at the end. Pushes all registers and flags.
+; This takes a little time, but we have found it much safer to 
+; push them all.
 
 interrupt:
 
-; Push F, A, B, and IX onto the stack. We are already in boost, provided that
-; we got here with an interrupt request. If any part of this interrupt needs
-; any other register, the routine must push and pop them itself.
+; Push all registers onto the stack. 
 
-push F 
-push A 
+push F              
+push A  
 push B
+push C
+push D
+push E
+push H
+push L
 push IX
+push IY
 
-; There is only one interrupt: the transmit interrupt. To save time, we
-; reset all interrupts.
 
-ld A,0xFF     
-ld (mmu_irst),A
+; Transmit a temperature measurement. After that, we decrement
+; the two-byte temperature period counter. When it reaches zero,
+; we update the temperature measurement and reset the counter.
+
+int_xmit_temp:
+ld A,(temp_xpd)
+add A,0
+jp z,int_xmit_temp_done
+ld A,(temp_idx)
+add A,0
+dec A
+ld (temp_idx),A
+jp nz,int_xmit_temp_done
+ld A,(temp_xpd)
+ld (temp_idx),A
+ld A,(temp_xch)
+ld (mmu_xch),A
+ld A,(temp_svh)
+ld (mmu_xhb),A
+ld A,(temp_svl)
+ld (mmu_xlb),A
+ld A,tx_txi
+ld (mmu_xcr),A
+ld A,tx_delay 
+dly A
+ld A,(temp_mtl)
+sub A,1
+ld (temp_mtl),A
+ld A,(temp_mth)
+sbc A,0
+ld (temp_mth),A
+jp p,int_xmit_temp_done
+ld A,(temp_mpd)
+ld (temp_mth),A
+ld A,0
+ld (temp_mtl),A
+call tmp_single
+int_xmit_temp_done:
+
+; Transmit an accelerometer measurement. The byte ordering
+; on the accelerometer is little-endian.
+
+int_xmit_acc:
+ld A,(acc_xpd)
+add A,0
+jp z,int_xmit_acc_done
+ld A,(acc_idx)
+dec A
+ld (acc_idx),A
+jp nz,int_xmit_acc_done
+ld A,(acc_xpd)
+ld (acc_idx),A
+ld A,bma_addr
+push A
+pop H
+ld A,bma_x
+push A
+pop L
+ld IX,scr_bot
+ld A,2
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
+add A,off_16bs   
+ld (mmu_xhb),A
+dec IX
+ld A,(IX)
+ld (mmu_xlb),A
+ld A,(acc_xch)
+ld (mmu_xch),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+ld A,tx_delay 
+dly A
+int_xmit_acc_done:
+
+; Transmit a byte from the non-volatile memory (NVM). We 
+; transmit the byte as the top byte in our two-byte
+; telemetry sample. We put the bottom eight bits of the 
+; NVM address in the bottom byte of the sample. Each
+; time we transmit a byte, we increment an address counter
+; so that we read all the bytes in turn.
+
+int_xmit_nvm:
+ld A,(nvm_xpd)
+add A,0
+jp z,int_xmit_nvm_done
+ld A,(nvm_idx)
+dec A
+ld (nvm_idx),A
+jp nz,int_xmit_nvm_done
+ld A,(nvm_xpd)
+ld (nvm_idx),A
+ld A,(nvm_xal)
+add A,1
+ld (nvm_xal),A
+push A
+pop L
+ld A,(nvm_xah)
+adc A,0
+and A,0x07
+ld (nvm_xah),A
+or A,nvm_addr
+push A
+pop H
+ld IX,scr_bot
+ld A,1
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
+ld (mmu_xhb),A
+push L
+pop A
+ld (mmu_xlb),A
+ld A,(nvm_xch)
+ld (mmu_xch),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+ld A,tx_delay 
+dly A
+int_xmit_nvm_done:
 
 ; Transmit accumulated X1-X4 samples.
 
-int_x:
+int_xmit_x:
 
 ; The first input is X1. We store the address of its transmit
 ; period in IX. We will be incrementing and decrementing IX
@@ -697,7 +824,7 @@ pop B
 ; transmit period for one of X1-X4 and also that (adc_idx) 
 ; contains a the sample address of the same input.
 
-int_x_loop:
+int_xmit_x_loop:
 
 ; If the transmit period is zero, the input is disabled, so 
 ; move to the next input. Note that IX is pointing at this
@@ -705,7 +832,7 @@ int_x_loop:
 
 ld A,(IX)
 add A,0
-jp z,int_x_next
+jp z,int_xmit_x_next
 
 ; Decrement the transmit index. If it is not yet zero after the
 ; decrement, we are not ready to transmit. Decrement IX so it
@@ -716,7 +843,7 @@ ld A,(IX)
 dec A
 ld (IX),A
 dec IX ; Transmit Period
-jp nz,int_x_next
+jp nz,int_xmit_x_next
 
 ; Set the transmit index equal to the transmit period.
 
@@ -732,10 +859,10 @@ ld (mmu_smcr),A
 
 ; Make sure the transmitter is not busy.
 
-int_x_txw:
+int_xmit_x_txw:
 ld A,(mmu_sr)
 and A,sr_txa
-jp nz,int_x_txw
+jp nz,int_xmit_x_txw
 
 ; Read the accumulated sample provided by the sample memory
 ; and write to the sample transmitter.
@@ -775,14 +902,14 @@ ld (mmu_smcr),A
 dec IX ; Transmit Index
 dec IX ; Sample Period
 
-int_x_next:
+int_xmit_x_next:
 
 ; Check the sample address. If it is equal to address of the final
 ; input we are done with all of them.
 
 ld A,sm_x4
 sub A,B
-jp z,int_x_done
+jp z,int_xmit_x_done
 
 ; Prepare for the next input. We increment the sample address
 ; and move IX from this input's period to the next input's period.
@@ -791,159 +918,38 @@ inc B
 inc IX
 inc IX
 inc IX
-jp int_x_loop
+jp int_xmit_x_loop
 
 ; Done with ADC readout and transmission.
 
-int_x_done:
-
-; Transmit a temperature measurement. After that, we decrement
-; the two-byte temperature period counter. When it reaches zero,
-; we update the temperature measurement and reset the counter.
-
-int_temp:
-ld A,(temp_xpd)
-add A,0
-jp z,int_temp_done
-ld A,(temp_idx)
-add A,0
-dec A
-ld (temp_idx),A
-jp nz,int_temp_done
-ld A,(temp_xpd)
-ld (temp_idx),A
-ld A,(temp_xch)
-ld (mmu_xch),A
-ld A,(temp_svh)
-ld (mmu_xhb),A
-ld A,(temp_svl)
-ld (mmu_xlb),A
-ld A,tx_txi
-ld (mmu_xcr),A
-ld A,(temp_mtl)
-sub A,1
-ld (temp_mtl),A
-ld A,(temp_mth)
-sbc A,0
-ld (temp_mth),A
-jp p,int_temp_done
-ld A,(temp_mpd)
-ld (temp_mth),A
-ld A,0
-ld (temp_mtl),A
-call tmp_single
-int_temp_done:
-
-; Transmit an accelerometer measurement. The byte ordering
-; on the accelerometer is little-endian.
-
-int_acc:
-push C
-push H
-push L
-ld A,(acc_xpd)
-add A,0
-jp z,int_acc_done
-ld A,(acc_idx)
-dec A
-ld (acc_idx),A
-jp nz,int_acc_done
-ld A,(acc_xpd)
-ld (acc_idx),A
-ld A,bma_addr
-push A
-pop H
-ld A,bma_x
-push A
-pop L
-ld IX,scr_bot
-ld A,2
-push A
-pop C
-call i2c_rd
-dec IX
-ld A,(IX)
-add A,off_16bs   
-ld (mmu_xhb),A
-dec IX
-ld A,(IX)
-ld (mmu_xlb),A
-ld A,(acc_xch)
-ld (mmu_xch),A
-ld A,tx_txi 
-ld (mmu_xcr),A
-pop L
-pop H
-pop C
-int_acc_done:
-
-; Transmit a byte from the non-volatile memory (NVM). We 
-; transmit the byte as the top byte in our two-byte
-; telemetry sample. We put the bottom eight bits of the 
-; NVM address in the bottom byte of the sample. Each
-; time we transmit a byte, we increment an address counter
-; so that we read all the bytes in turn.
-
-int_nvm:
-push C
-push H
-push L
-ld A,(nvm_xpd)
-add A,0
-jp z,int_nvm_done
-ld A,(nvm_idx)
-dec A
-ld (nvm_idx),A
-jp nz,int_nvm_done
-ld A,(nvm_xpd)
-ld (nvm_idx),A
-ld A,(nvm_xal)
-add A,1
-ld (nvm_xal),A
-push A
-pop L
-ld A,(nvm_xah)
-adc A,0
-and A,0x07
-ld (nvm_xah),A
-or A,nvm_addr
-push A
-pop H
-ld IX,scr_bot
-ld A,1
-push A
-pop C
-call i2c_rd
-dec IX
-ld A,(IX)
-ld (mmu_xhb),A
-push L
-pop A
-ld (mmu_xlb),A
-ld A,(nvm_xch)
-ld (mmu_xch),A
-ld A,tx_txi 
-ld (mmu_xcr),A
-pop L
-pop H
-pop C
-int_nvm_done:
+int_xmit_x_done:
 
 ; Done with transmit interrupt. Make sure we are not transmitting before
 ; we leave.
 
-int_done_txw:
+int_xmit_done_txw:
 ld A,(mmu_sr)
 and A,sr_txa
-jp nz,int_done_txw
+jp nz,int_xmit_done_txw
+
+; Done with all interrupts. Clear interrupt flags.
+
+ld A,0xFF 
+ld (mmu_irst),A
 
 ; Restore registers and return from interrupt.
 
+pop IY
 pop IX
+pop L
+pop H
+pop E
+pop D
+pop C
 pop B
-pop A
-pop F
-rti
+pop A    
+pop F 
+rti 
 
 ; ------------------------------------------------------------
 ; Transmit an annoucement, which consists of two auxiliary 

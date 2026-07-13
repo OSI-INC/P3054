@@ -1776,5 +1776,5 @@ begin
 	
 -- Test Point appears on P1-7.
 --	TP <= df_reg(0);
-	TP <= FCKEN;
+	TP <= to_std_logic(CPUISRV);
 end behavior;
