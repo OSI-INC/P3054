@@ -247,6 +247,7 @@ architecture behavior of main is
 	attribute syn_keep of SCRUN, SCBSY : signal is true;
 	attribute nomerge of SCRUN, SCBSY : signal is "";  
 	signal x1_shift, x2_shift, x3_shift, x4_shift : std_logic_vector(2 downto 0);
+	signal X1SKIP, X2SKIP, X3SKIP, X4SKIP : boolean;
 
 -- Sample Memory and Accumulator
 	signal SMWRADC, -- Sample Memory Write by ADC Controller
@@ -577,6 +578,10 @@ begin
 			DC <= '0';
 			ACCRST <= '1';
 			SMWRCPU	<= '1';
+			X1SKIP <= false;
+			X2SKIP <= false;
+			X3SKIP <= false;
+			X4SKIP <= false;
 			X4SS <= false;
 			
 		-- We use the falling edge of RCK to write to registers and to initiate sensor 
@@ -729,13 +734,17 @@ begin
 						-- is to be sampled.
 						when mmu_x1cfg =>
 							x1_shift <= cpu_data_out(2 downto 0);
+							X1SKIP <= cpu_data_out(7) = '1';
 						when mmu_x2cfg =>
 							x2_shift <= cpu_data_out(2 downto 0);
+							X2SKIP <= cpu_data_out(7) = '1';
 						when mmu_x3cfg =>
 							x3_shift <= cpu_data_out(2 downto 0);
+							X3SKIP <= cpu_data_out(7) = '1';
 						when mmu_x4cfg =>
 							x4_shift <= cpu_data_out(2 downto 0);
 							X4SS <= (cpu_data_out(3) = '1');
+							X4SKIP <= cpu_data_out(7) = '1';
 
 						-- For all other addresses, we have no bits to set.
 						-- he shadow RAM is recording all writes to these 
@@ -1033,15 +1042,19 @@ begin
 	Sample_Controller : process (FCK) is
 	variable state, next_state : integer range 0 to 15 := 0;
 	constant sc_idle : integer := 0;
-	constant x1_start : integer := 1;
-	constant x1_wait : integer := 2;
-	constant x2_start : integer := 3;
-	constant x2_wait : integer := 4;
-	constant x3_start : integer := 5;
-	constant x3_wait : integer := 6;
-	constant x4_start : integer := 7;
-	constant x4_wait : integer := 8;
-	constant sc_wait : integer:= 9;
+	constant x1_check : integer := 1;
+	constant x1_start : integer := 2;
+	constant x1_wait : integer := 3;
+	constant x2_check : integer := 4;
+	constant x2_start : integer := 5;
+	constant x2_wait : integer := 6;
+	constant x3_check : integer := 7;
+	constant x3_start : integer := 8;
+	constant x3_wait : integer := 9;
+	constant x4_check : integer := 10;
+	constant x4_start : integer := 11;
+	constant x4_wait : integer := 12;
+	constant sc_wait : integer:= 13;
 	variable X4EN : boolean;
 	
 	begin
@@ -1054,7 +1067,16 @@ begin
 				adc_sel <= x1_sel;
 				adc_shift <= x1_shift;
 				ADCRD <= false;
-				next_state := x1_start;
+				next_state := x1_check;
+			elsif (state = x1_check) then
+				adc_sel <= x1_sel;
+				adc_shift <= x1_shift;
+				ADCRD <= false;
+				if not X1SKIP then
+					next_state := x1_start;
+				else 
+					next_state := x2_check;
+				end if;
 			elsif (state = x1_start) then
 				adc_sel <= x1_sel;
 				adc_shift <= x1_shift;
@@ -1071,7 +1093,16 @@ begin
 				if ADCBSY then
 					next_state := x1_wait;
 				else
+					next_state := x2_check;
+				end if;
+			elsif (state = x2_check) then
+				adc_sel <= x2_sel;
+				adc_shift <= x2_shift;
+				ADCRD <= false;
+				if not X2SKIP then
 					next_state := x2_start;
+				else 
+					next_state := x3_check;
 				end if;
 			elsif (state = x2_start) then
 				adc_sel <= x2_sel;
@@ -1089,7 +1120,16 @@ begin
 				if ADCBSY then
 					next_state := x2_wait;
 				else
+					next_state := x3_check;
+				end if;
+			elsif (state = x3_check) then
+				adc_sel <= x3_sel;
+				adc_shift <= x3_shift;
+				ADCRD <= false;
+				if not X3SKIP then
 					next_state := x3_start;
+				else 
+					next_state := x4_check;
 				end if;
 			elsif (state = x3_start) then
 				adc_sel <= x3_sel;
@@ -1107,7 +1147,16 @@ begin
 				if ADCBSY then
 					next_state := x3_wait;
 				else
+					next_state := x4_check;
+				end if;
+			elsif (state = x4_check) then
+				adc_sel <= x4_sel;
+				adc_shift <= x4_shift;
+				ADCRD <= false;
+				if not X4SKIP then
 					next_state := x4_start;
+				else 
+					next_state := sc_wait;
 				end if;
 			elsif (state = x4_start) then
 				adc_sel <= x4_sel;
@@ -1134,10 +1183,13 @@ begin
 				end if;
 			elsif (state = sc_wait) then
 				adc_sel <= x4_sel;
-				ADCRD <= false;
 				adc_shift <= x4_shift;
+				ADCRD <= false;
 				next_state := sc_wait;
 			else 
+				adc_sel <= x4_sel;
+				adc_shift <= x4_shift;
+				ADCRD <= false;
 				next_state := sc_wait;
 			end if;
 			
@@ -1765,5 +1817,5 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= to_std_logic(CPUISRV);
+	TP <= to_std_logic(ADCBSY);
 end behavior;
