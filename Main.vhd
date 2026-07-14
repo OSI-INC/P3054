@@ -102,6 +102,10 @@
 -- V1.18 [13-JUL-26] Activate telemetry protocol immediately after reset.
 -- Use CUPISRV instead of df_reg(0) as our interrupt flag on TP1.
 
+-- V1.19 [14-JUL-26] Permit sampling of X1-X4 to be disabled with writes to
+-- new X1SKIP to X4SKIP flags. Disabling reduces current consumption by about 
+-- two microamp.
+
 library ieee;  
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -1032,15 +1036,13 @@ begin
 -- the four converters ADC1-ADC4. It runs off FCK. It starts running when
 -- it sees the ACRUN flag set. It will not return to its idle state until
 -- this flag is cleared. It obtains a sample from each ADC for which the
--- period index is equal to one. The Sample Controller does not change 
--- the period index. That task is left to the Telemetry Controller. Any
--- input for which the index is not one will be skipped over. The Sample
--- Controller sets the adc_sel and adc_shift arrays to make sure that
--- the sample is shifted the correct number of places to the left and then
--- stored in the correct location in the sample memory. For the X4 channel,
--- the controller will 
+-- skip flag is clear. The controller latches the state of the four skip
+-- flags when it is idle. The latching of these flags is essential. If we
+-- do not latch them, the firmware will freeze occasionally on RESET.
+-- The controller sets adc_sel and adc_shift to match each ADC in turn.
 	Sample_Controller : process (FCK) is
 	variable state, next_state : integer range 0 to 15 := 0;
+	variable X1SKIPL, X2SKIPL, X3SKIPL, X4SKIPL : boolean;
 	constant sc_idle : integer := 0;
 	constant x1_check : integer := 1;
 	constant x1_start : integer := 2;
@@ -1062,6 +1064,10 @@ begin
 			ADCRD <= false;
 			adc_sel <= x1_sel;
 			state := sc_idle;
+			X1SKIPL := X1SKIP;
+			X2SKIPL := X2SKIP;
+			X3SKIPL := X3SKIP;
+			X4SKIPL := X4SKIP;
 		elsif falling_edge(FCK) then
 			if (state = sc_idle) then 
 				adc_sel <= x1_sel;
@@ -1072,7 +1078,7 @@ begin
 				adc_sel <= x1_sel;
 				adc_shift <= x1_shift;
 				ADCRD <= false;
-				if not X1SKIP then
+				if not X1SKIPL then
 					next_state := x1_start;
 				else 
 					next_state := x2_check;
@@ -1099,7 +1105,7 @@ begin
 				adc_sel <= x2_sel;
 				adc_shift <= x2_shift;
 				ADCRD <= false;
-				if not X2SKIP then
+				if not X2SKIPL then
 					next_state := x2_start;
 				else 
 					next_state := x3_check;
@@ -1126,7 +1132,7 @@ begin
 				adc_sel <= x3_sel;
 				adc_shift <= x3_shift;
 				ADCRD <= false;
-				if not X3SKIP then
+				if not X3SKIPL then
 					next_state := x3_start;
 				else 
 					next_state := x4_check;
@@ -1153,7 +1159,7 @@ begin
 				adc_sel <= x4_sel;
 				adc_shift <= x4_shift;
 				ADCRD <= false;
-				if not X4SKIP then
+				if not X4SKIPL then
 					next_state := x4_start;
 				else 
 					next_state := sc_wait;
@@ -1817,5 +1823,5 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= to_std_logic(ADCBSY);
+	TP <= to_std_logic(CPUISRV);
 end behavior;
