@@ -106,6 +106,10 @@
 -- new X1SKIP to X4SKIP flags. Disabling reduces current consumption by about 
 -- two microamp.
 
+-- V1.20 [16-JUL-26] Efficient use of FCK during sampling. We use a toggle
+-- hand-shake to turn on FCK from the Telemetry Manager and turn off FCK
+-- from the Sample Controller.
+
 library ieee;  
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
