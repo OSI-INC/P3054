@@ -224,32 +224,33 @@ architecture behavior of main is
 		std_logic_vector(fck_num_feeds-1 downto 0) :=
 		(fck_num_feeds-1 => '1', others => '0');
 
--- Message Transmission. The syn_keep and nomerge reduce code size slightly.
-	signal TXI, -- Transmit Initiate
-		TXWP, -- Transmit Warmup
-		TXA, -- Transmit Active
-		TXB, -- Transmit Bit
-		FHI -- Frequency High
-		: boolean := false;
-	attribute syn_keep of TXI, TXA : signal is true;
-	attribute nomerge of TXI, TXA : signal is "";  
-	signal xmit_bits : std_logic_vector(15 downto 0);
-	signal tx_channel : integer range 0 to 255;
-	signal frequency_low : integer range 0 to 31;
-	signal transmit_shift : std_logic_vector(3 downto 0);
-		
+-- Clock Control. 
+	signal ENFCKCPU, -- Enable Fast Clock, from CPU
+		ENFCKTM, -- Enable Fast Clock, from Telemetry Manager
+		BOOST, -- Boost CPU Clock
+		KEEPFCK, -- Keep FCK Running
+		RCKLO -- RCK is LO
+		: boolean; 
+	signal SRCK, -- RCK Synchronized with FCK
+		SSRCK -- SRCK Delayed by one FCK Period
+		: std_logic; 
+	attribute syn_keep of BOOST, ENFCKCPU, ENFCKTM : signal is true;
+	attribute nomerge of BOOST, ENFCKCPU, ENFCKTM : signal is "";
+
 -- Telemetry Manager
 	signal TMINT, -- Telemetry Manager Interrupt
 		TMINTD -- TMINT Delayed
 		: boolean := false;
 
 -- Sample Controller
-	signal SCRUN, -- Sample Controller Run
+	signal SCRQ, -- Sample Controller Request
+		SCRST, -- Sample Controller Reset
+		SCACK, -- Sample Controller Acknowledge
 		SCBSY, -- Sample Controller Busy
 		X4SS -- Channel X4 Single Sample
 		: boolean := false;
-	attribute syn_keep of SCRUN, SCBSY : signal is true;
-	attribute nomerge of SCRUN, SCBSY : signal is "";  
+	attribute syn_keep of SCRST, SCBSY : signal is true;
+	attribute nomerge of SCRST, SCBSY : signal is "";  
 	signal x1_shift, x2_shift, x3_shift, x4_shift : std_logic_vector(2 downto 0);
 	signal X1SKIP, X2SKIP, X3SKIP, X4SKIP : boolean;
 
@@ -275,21 +276,22 @@ architecture behavior of main is
 	signal adc_sel : std_logic_vector(1 downto 0);
 	signal adc_shift : std_logic_vector(2 downto 0);
 
+-- Message Transmission. The syn_keep and nomerge reduce code size slightly.
+	signal TXI, -- Transmit Initiate
+		TXWP, -- Transmit Warmup
+		TXA, -- Transmit Active
+		TXB, -- Transmit Bit
+		FHI -- Frequency High
+		: boolean := false;
+	attribute syn_keep of TXI, TXA : signal is true;
+	attribute nomerge of TXI, TXA : signal is "";  
+	signal xmit_bits : std_logic_vector(15 downto 0);
+	signal tx_channel : integer range 0 to 255;
+	signal frequency_low : integer range 0 to 31;
+	signal transmit_shift : std_logic_vector(3 downto 0);
+		
 -- I2C Bus Controller
 	signal i2c_in : std_logic_vector(7 downto 0); -- I2C Serial Byte
-
--- Clock Control. 
-	signal ENFCKCPU, -- Enable Fast Clock, from CPU
-		ENFCKTM, -- Enable Fast Clock, from Telemetry Manager
-		BOOST, -- Boost CPU Clock
-		KEEPFCK, -- Keep FCK Running
-		RCKLO -- RCK is LO
-		: boolean; 
-	signal SRCK, -- RCK Synchronized with FCK
-		SSRCK -- SRCK Delayed by one FCK Period
-		: std_logic; 
-	attribute syn_keep of BOOST, ENFCKCPU, ENFCKTM : signal is true;
-	attribute nomerge of BOOST, ENFCKCPU, ENFCKTM : signal is "";
 	
 -- Diagnostic Flag Register
 	signal df_reg : std_logic_vector(3 downto 0);
@@ -925,8 +927,17 @@ begin
 -- The Telemetry Manager organizes sampling of the inputs X1-X4 a
 -- frequency that is an integer fraction of 1024 SPS and generates
 -- the transmit interrupt offset from sampling by a random number
--- of RCK periods. The manager runs off RCK, but turns on FCK for
--- the Sample Controller.
+-- of RCK periods. The manager runs off RCK, but the Sample
+-- Controller, which it activates in its sample state, runs off
+-- FCK. In the sample state, the manager unasserts SCRST so that 
+-- the Sample Controller can come out of reset on the next rising 
+-- edge of FCK. The manager also toggles the SCRQ so as to request
+-- that FCK start up. The Sample Controller will set SCACK equal to
+-- SCRQ when it has finished sampling. The manager enables FCK when 
+-- SCRQ and SCACK are not equal, This interaction between two
+-- processes, one running on RCK and one on FCK works provided that
+-- the Sample Controller runs on the rising edge of FCK and toggles 
+-- SCACK on the falling edge. 
 	Telemetry_Manager : process (RCK) is 
 		constant tm_max : integer := 31;
 		constant tm_idle : integer := tm_max;
@@ -939,7 +950,8 @@ begin
 	begin
 		if RESET = '1' then
 			ENFCKTM <= false;
-			SCRUN <= false;
+			SCRST <= true;
+			SCRQ <= false;
 			TMINT <= false;
 			TMRUN := false;
 			state := tm_idle;
@@ -961,12 +973,11 @@ begin
 					TMINT <= true;
 				end if;
 			elsif (state = tm_sample) then
-				ENFCKTM <= true;
-				SCRUN <= true;
+				SCRST <= false;
+				SCRQ <= not SCRQ;
 				TMINT <= false;
 			elsif (state = tm_update) then
-				ENFCKTM <= false;
-				SCRUN <= false;
+				SCRST <= true;
 				TMINT <= false;
 				if tx_index = 1 then
 					tx_index := to_integer(unsigned(int_period_0));
@@ -977,17 +988,17 @@ begin
 				if not TMRUN then
 					tx_index := to_integer(unsigned(int_period_0));
 				end if;
-				ENFCKTM <= false;
-				SCRUN <= false;
+				SCRST <= true;
 				TMINT <= false;
 			else
-				ENFCKTM <= false;
-				SCRUN <= false;
+				SCRST <= true;
 				TMINT <= false;
 			end if;
 			
 			state := next_state;
 		end if;
+		
+		ENFCKTM <= SCRQ xor SCACK;
 	end process;
 
 -- The Sample Memory is fourteen bits wide so as to accommodate
@@ -1056,11 +1067,38 @@ begin
 	constant x4_check : integer := 10;
 	constant x4_start : integer := 11;
 	constant x4_wait : integer := 12;
-	constant sc_wait : integer:= 13;
+	constant sc_done : integer := 13;
+	constant sc_wait : integer:= 14;
 	variable X4EN : boolean;
 	
 	begin
-		if not SCRUN then
+		if RESET = '1' then
+			SCACK <= false;
+		elsif falling_edge(FCK) then
+			if (state = sc_wait) then
+				SCACK <= SCRQ;
+			end if;
+		end if;
+		
+		if RESET = '1' then
+			ADCCAL <= true;
+		elsif rising_edge(FCK) then
+			if (state = sc_wait) then
+				ADCCAL <= false;
+			end if;
+		end if;
+		
+		if RESET = '1' then
+			X4EN := true;
+		elsif rising_edge(FCK) then
+			if (ACCRST = '1') and (sample_sel = x4_sel) then
+				X4EN := true;
+			elsif (state = x4_wait) and X4SS then
+				X4EN := false;
+			end if;
+		end if;
+			
+		if SCRST then
 			ADCRD <= false;
 			adc_sel <= x1_sel;
 			state := sc_idle;
@@ -1068,7 +1106,7 @@ begin
 			X2SKIPL := X2SKIP;
 			X3SKIPL := X3SKIP;
 			X4SKIPL := X4SKIP;
-		elsif falling_edge(FCK) then
+		elsif rising_edge(FCK) then
 			if (state = sc_idle) then 
 				adc_sel <= x1_sel;
 				adc_shift <= x1_shift;
@@ -1176,7 +1214,7 @@ begin
 					end if;
 				else 
 					ADCRD <= false;
-					next_state := sc_wait;
+					next_state := sc_done;
 				end if;
 			elsif (state = x4_wait) then
 				adc_sel <= x4_sel;
@@ -1185,9 +1223,9 @@ begin
 				if ADCBSY then
 					next_state := x4_wait;
 				else
-					next_state := sc_wait;
+					next_state := sc_done;
 				end if;
-			elsif (state = sc_wait) then
+			elsif (state = sc_done) then
 				adc_sel <= x4_sel;
 				adc_shift <= x4_shift;
 				ADCRD <= false;
@@ -1201,25 +1239,7 @@ begin
 			
 			state := next_state;
 			SCBSY <= (state > sc_idle) and (state < sc_wait);
-		end if;
-		
-		if RESET = '1' then
-			ADCCAL <= true;
-		elsif rising_edge(FCK) then
-			if (state = sc_wait) then
-				ADCCAL <= false;
-			end if;
-		end if;
-		
-		if RESET = '1' then
-			X4EN := true;
-		elsif rising_edge(FCK) then
-			if (ACCRST = '1') and (sample_sel = x4_sel) then
-				X4EN := true;
-			elsif (state = x4_wait) and X4SS then
-				X4EN := false;
-			end if;
-		end if;
+		end if;		
 	end process;
 
 -- ADC Controller starts reading one of the 14-bit ADCs when it detects 
