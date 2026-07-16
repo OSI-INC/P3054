@@ -973,9 +973,7 @@ begin
 					TMINT <= true;
 				end if;
 			elsif (state = tm_sample) then
-				SCRST <= false;
 				SCRQ <= not SCRQ;
-				TMINT <= false;
 			elsif (state = tm_update) then
 				SCRST <= true;
 				TMINT <= false;
@@ -985,14 +983,12 @@ begin
 					tx_index := tx_index - 1;
 				end if;
 			elsif (state = tm_idle) then
+				SCRST <= false;
 				if not TMRUN then
 					tx_index := to_integer(unsigned(int_period_0));
 				end if;
-				SCRST <= true;
-				TMINT <= false;
 			else
-				SCRST <= true;
-				TMINT <= false;
+				SCRST <= false;
 			end if;
 			
 			state := next_state;
@@ -1020,14 +1016,12 @@ begin
 -- Controller as it steps through the ADCs performing samples. The
 -- latter is set by the CPU with a write to the sample memory
 -- address register.
-	Sample_Addr_Mux : process (FCK) is 
+	Sample_Addr_Mux : process (SCBSY) is 
 	begin
-		if rising_edge(FCK) then
-			if SCBSY then
-				smem_addr <= adc_sel;
-			else
-				smem_addr <= sample_sel;
-			end if;
+		if SCBSY then
+			smem_addr <= adc_sel;
+		else
+			smem_addr <= sample_sel;
 		end if;
 	end process;
 		
@@ -1083,7 +1077,7 @@ begin
 		if RESET = '1' then
 			ADCCAL <= true;
 		elsif rising_edge(FCK) then
-			if (state = sc_wait) then
+			if (state = sc_done) then
 				ADCCAL <= false;
 			end if;
 		end if;
@@ -1111,7 +1105,11 @@ begin
 				adc_sel <= x1_sel;
 				adc_shift <= x1_shift;
 				ADCRD <= false;
-				next_state := x1_check;
+				if ENFCKTM then
+					next_state := x1_check;
+				else
+					next_state := sc_idle;
+				end if;
 			elsif (state = x1_check) then
 				adc_sel <= x1_sel;
 				adc_shift <= x1_shift;
@@ -1200,7 +1198,7 @@ begin
 				if not X4SKIPL then
 					next_state := x4_start;
 				else 
-					next_state := sc_wait;
+					next_state := sc_done;
 				end if;
 			elsif (state = x4_start) then
 				adc_sel <= x4_sel;
@@ -1277,7 +1275,7 @@ begin
 		-- initiate an ADC self-calibration. When ADCCAL is not set, the fourteen 
 		-- data bits are shifted into the adc_data register. Once we have them, we
 		-- write the sample to the sample memory.
-		elsif rising_edge(FCK) then
+		elsif falling_edge(FCK) then
 			if (state = 0) then 
 				if ADCRD then 
 					next_state := 1;
@@ -1843,5 +1841,7 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
-	TP <= to_std_logic(CPUISRV);
+--	TP <= to_std_logic(CPUISRV);
+--	TP <= to_std_logic(ADCBSY);
+	TP <= to_std_logic(ENFCKTM);
 end behavior;
