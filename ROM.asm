@@ -346,16 +346,26 @@ const bma_aconf    0x40 ; ACC_CONF register
 const bma_arange   0x41 ; ACC_RANGE register
 const bma_pctrl    0x7D ; PWR_CTRL register
 const bma_pconf    0x7C ; PWR_CONF register
+const bma_cmd      0x7E ; CMD register
 const bma_2g       0x00 ; For ACC_RANGE, +-2g
 const bma_4g       0x01 ; For ACC_RANGE, +-4g
 const bma_8g       0x02 ; For ACC_RANGE, +-8g
 const bma_16g      0x03 ; For ACC_RANGE, +-16g
-const bma_1hz      0x01 ; For ACC_CONF, 1 Hz, no averaging, no filter
-const bma_25hz     0x06 ; For ACC_CONF, 25 Hz, no averaging, no filter
-const bma_100hz    0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
+const bma_0p78     0x01 ; For ACC_CONF, 25/32 Hz, no averaging, no filter
+const bma_1p5      0x02 ; For ACC_CONF, 25/16 Hz, no averaging, no filter
+const bma_3p1      0x03 ; For ACC_CONF, 25/8 Hz, no averaging, no filter
+const bma_6p25     0x04 ; For ACC_CONF, 25/4 Hz, no averaging, no filter
+const bma_12p5     0x05 ; For ACC_CONF, 25/2 Hz, no averaging, no filter
+const bma_25       0x06 ; For ACC_CONF, 25 Hz, no averaging, no filter
+const bma_50       0x07 ; For ACC_CONF, 25 Hz, no averaging, no filter
+const bma_100      0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
+const bma_200      0x09 ; For ACC_CONF, 200 Hz, no averaging, no filter
+const bma_300      0x0A ; For ACC_CONF, 400 Hz, no averaging, no filter
+const bma_800      0x0B ; For ACC_CONF, 800 Hz, no averaging, no filter
 const bma_enable   0x04 ; For PWR_CTRL, enable data acquisition.
 const bma_disable  0x00 ; For PWR_CTRL, disable data acquisition.
 const bma_pwrsv    0x03 ; For PWR_CONF, power save, fifo self-start.
+const bma_reset    0xB6 ; For CMD, soft reset, starts reconfiguration
 const bma_sdly        2 ; Startup delay in milliseconds
 
 ; Constants: for use with the Sample Controller.
@@ -423,7 +433,7 @@ jp nz,delay_ms_lo
 pop B
 pop A
 pop F
-ret
+ret;
 
 ; ------------------------------------------------------------
 ; Write 16N bytes to the non-volatile memory (NVM), where N is 
@@ -440,7 +450,7 @@ ret
 ; Can run in slow or boost mode. If interrupted, the interrupt
 ; service routine must not call any I2C routine.
 
-nvm_wr:
+nvm_wr16:
 
 push F
 push A
@@ -468,7 +478,7 @@ and A,0xF0
 push A
 pop L
 
-nvm_wr_loop:
+nvm_wr16_loop:
 call i2c_wr
 ld A,6
 call delay_ms
@@ -485,7 +495,7 @@ adc A,0
 push A
 pop H
 dec D
-jp nz,nvm_wr_loop
+jp nz,nvm_wr16_loop
 
 pop D
 pop C
@@ -595,6 +605,25 @@ ld A,bma_addr
 push A
 pop H
 
+; Perform a soft reset. We may not be powering up, but rather
+; re-initializing after a device reset command.
+
+ld a,bma_cmd
+push A
+pop L
+ld IX,scr_bot
+ld A,bma_reset
+ld (IX),A
+ld A,1
+push A
+pop C
+call i2c_wr
+
+; Wait for the sensor to boot up.
+
+ld A,bma_sdly
+call delay_ms 
+
 ; Specify the PWR_CONF register with its sub-address in L.
 
 ld A,bma_pconf
@@ -637,6 +666,11 @@ ld A,1
 push A
 pop C
 call i2c_wr
+
+; Wait for register write to complete.
+
+ld A,bma_sdly
+call delay_ms 
 
 ; Configure range by writing to ACC_RANGE.
 
@@ -1517,7 +1551,7 @@ srl A              ; bytes by sixteen using
 srl A              ; shift-right logical to get the
 srl A              ; number of sixteen-byte
 srl A              ; pages to be written.
-call nvm_wr        ; Call the write routine and
+call nvm_wr16        ; Call the write routine and
 call annc_ack      ; acknowledge.
 jp cmd_loop        ; We are done with this instruction.
 check_nvmwr_end:
@@ -1841,7 +1875,7 @@ ld (acc_xpd),A
 ld (acc_idx),A
 ld A,bma_disable
 ld (bma_state),A
-ld A,bma_1hz
+ld A,bma_0p78
 ld (bma_rate),A
 ld A,bma_2g
 ld (bma_range),A

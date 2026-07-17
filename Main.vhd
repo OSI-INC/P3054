@@ -110,6 +110,8 @@
 -- hand-shake to turn on FCK from the Telemetry Manager and turn off FCK
 -- from the Sample Controller.
 
+-- V1.21 [17-JUL-26] Add soft reset to accelerometer configuration.
+
 library ieee;  
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -1845,7 +1847,7 @@ begin
 	end process;
 	
 -- Test Point appears on P1-7.
---	TP <= to_std_logic(CPUISRV);
+	TP <= to_std_logic(CPUISRV);
 --	TP <= to_std_logic(ADCBSY);
-	TP <= to_std_logic(ENFCKTM);
+--	TP <= to_std_logic(ENFCKTM);
 end behavior;
