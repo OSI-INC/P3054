@@ -366,7 +366,7 @@ const bma_25       0x06 ; For ACC_CONF, 25 Hz, no averaging, no filter
 const bma_50       0x07 ; For ACC_CONF, 25 Hz, no averaging, no filter
 const bma_100      0x08 ; For ACC_CONF, 100 Hz, no averaging, no filter
 const bma_200      0x09 ; For ACC_CONF, 200 Hz, no averaging, no filter
-const bma_300      0x0A ; For ACC_CONF, 400 Hz, no averaging, no filter
+const bma_400      0x0A ; For ACC_CONF, 400 Hz, no averaging, no filter
 const bma_800      0x0B ; For ACC_CONF, 800 Hz, no averaging, no filter
 const bma_enable   0x04 ; For PWR_CTRL, enable data acquisition.
 const bma_disable  0x00 ; For PWR_CTRL, disable data acquisition.
