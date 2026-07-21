@@ -154,18 +154,18 @@ const x4_scfg    0x030F ; X4 Sample Configuration
 ; in memory matches the order in which we use them in the 
 ; interrupt routine. 
 
-const x1_xpd     0x0310 ; X1 Transmit Period
-const x1_idx     0x0311 ; X1 Transmit Index
-const x1_xch     0x0312 ; X1 Transmit Channel Number
-const x2_xpd     0x0313 ; X2 Transmit Period
-const x2_idx     0x0314 ; X2 Transmit Index
-const x2_xch     0x0315 ; X2 Transmit Channel Number
-const x3_xpd     0x0316 ; X3 Transmit Period
-const x3_idx     0x0317 ; X3 Transmit Index
-const x3_xch     0x0318 ; X3 Transmit Channel Number
-const x4_xpd     0x0319 ; X4 Transmit Period
-const x4_idx     0x031A ; X4 Transmit Index
-const x4_xch     0x031B ; X4 Transmit Channel Number
+const x1_xch     0x0310 ; X1 Transmit Channel Number
+const x1_xpd     0x0311 ; X1 Transmit Period
+const x1_idx     0x0312 ; X1 Transmit Index
+const x2_xch     0x0313 ; X2 Transmit Channel Number
+const x2_xpd     0x0314 ; X2 Transmit Period
+const x2_idx     0x0315 ; X2 Transmit Index
+const x3_xch     0x0316 ; X3 Transmit Channel Number
+const x3_xpd     0x0317 ; X3 Transmit Period
+const x3_idx     0x0318 ; X3 Transmit Index
+const x4_xch     0x0319 ; X4 Transmit Channel Number
+const x4_xpd     0x031A ; X4 Transmit Period
+const x4_idx     0x031B ; X4 Transmit Index
 
 ; Configuration Variables: Temperature Sensor. The measurement
 ; period is in multiples of 250 ms. We have a two-byte timer 
@@ -182,17 +182,23 @@ const temp_mtl   0x0325 ; Measurement Timer, LO
 const temp_svh   0x0326 ; Saved, HI
 const temp_svl   0x0327 ; Saved, LO
 
-; Configuration Variables: Accelerometer. The state code is
-; enabled or disabled. The rate is a code for the update 
-; frequency. The range is a code for the acceleration 
-; dynamic range.
+; Configuration Variables: Accelerometer. We have channels
+; for X, Y, and Z directions. If these are non-zero, we
+; will transmit the coordinate. The transmit period is
+; a multiple of the telemetry protocol period. We configure
+; the BMA423 sensor with three bytes: enable or disable,
+; update rate, and dynamic range. We list the byte values
+; and their meanings in a separate constant declaration
+; paragraph.
 
-const acc_xch    0x0328 ; Transmit Channel
-const acc_xpd    0x0329 ; Transmit Period
-const acc_idx    0x032A ; Index
-const bma_state  0x032B ; Enable or Disable
-const bma_rate   0x032C ; Update Rate
-const bma_range  0x032D ; Dynamic Range
+const acc_xch    0x0328 ; Transmit Channel for X
+const acc_ych    0x0329 ; Transmit Channel for Y
+const acc_zch    0x032A ; Transmit Channel for Z
+const acc_xpd    0x032B ; Transmit Period
+const acc_idx    0x032C ; Transmit Index
+const bma_state  0x032D ; Enable or Disable Measurement
+const bma_rate   0x032E ; Measurement Update Rate
+const bma_range  0x032F ; Measurement Dynamic Range
 
 ; Configuration Variables: NVM Transmission. Each transmit
 ; sample is a new byte read from the NVM, in which the top
@@ -375,6 +381,7 @@ const adc_shift1   0x01 ; One Shift Left
 const adc_shift2   0x02 ; Two Shifts Left
 const adc_shift3   0x03 ; Three Shifts Left
 const adc_shift4   0x04 ; Four Shifts Left
+const adc_skip     0x80 ; Skip sampling
 const adc_x4ss     0x0C ; Four Shifts Left, Single Sample
 const acc_rst      0x04 ; Reset the Accumulator
 const sm_wrcpu     0x08 ; Write to Sample Memory
@@ -721,14 +728,14 @@ ld (mmu_irst),A
 
 ; Transmit accumulated X1-X4 samples.
 
-int_xmit_x:
+int_x:
 
 ; The first input is X1. We store the address of its transmit
 ; period in IX. We will be incrementing and decrementing IX
 ; to access the sample control variables. We will keep in B
 ; the sample memory address of this input.
  
-ld IX,x1_xpd
+ld IX,x1_xpd ; Sample Period
 ld A,sm_x1
 push A
 pop B
@@ -737,7 +744,7 @@ pop B
 ; transmit period for one of X1-X4 and also that (adc_idx) 
 ; contains a the sample address of the same input.
 
-int_xmit_x_loop:
+int_x_loop:
 
 ; If the transmit period is zero, the input is disabled, so 
 ; move to the next input. Note that IX is pointing at this
@@ -745,7 +752,7 @@ int_xmit_x_loop:
 
 ld A,(IX)
 add A,0
-jp z,int_xmit_x_next
+jp z,int_x_next
 
 ; Decrement the transmit index. If it is not yet zero after the
 ; decrement, we are not ready to transmit. Decrement IX so it
@@ -756,7 +763,7 @@ ld A,(IX)
 dec A
 ld (IX),A
 dec IX ; Transmit Period
-jp nz,int_xmit_x_next
+jp nz,int_x_next
 
 ; Set the transmit index equal to the transmit period.
 
@@ -772,10 +779,10 @@ ld (mmu_smcr),A
 
 ; Make sure the transmitter is not busy.
 
-int_xmit_x_txw:
+int_x_txw:
 ld A,(mmu_sr)
 and A,sr_txa
-jp nz,int_xmit_x_txw
+jp nz,int_x_txw
 
 ; Read the accumulated sample provided by the sample memory
 ; and write to the sample transmitter.
@@ -787,7 +794,8 @@ ld (mmu_xlb),A
 
 ; Load the telemetry channel number into the sample transmitter.
 
-inc IX ; Telemetry Channel
+dec IX ; Transmit Period
+dec IX ; Telemetry Channel
 ld A,(IX)
 ld (mmu_xch),A
 
@@ -810,19 +818,18 @@ or A,B
 ld (mmu_smcr),A
 
 ; Done with this input, time to move on to the next one, but 
-; first move IX back to point to this channels transmit period.
+; first move IX back to point to the transmit period.
 
-dec IX ; Transmit Index
-dec IX ; Sample Period
+inc IX ; Sample Period
 
-int_xmit_x_next:
+int_x_next:
 
 ; Check the sample address. If it is equal to address of the final
 ; input we are done with all of them.
 
 ld A,sm_x4
 sub A,B
-jp z,int_xmit_x_done
+jp z,int_x_done
 
 ; Prepare for the next input. We increment the sample address
 ; and move IX from this input's period to the next input's period.
@@ -831,25 +838,25 @@ inc B
 inc IX
 inc IX
 inc IX
-jp int_xmit_x_loop
+jp int_x_loop
 
 ; Done with ADC readout and transmission.
 
-int_xmit_x_done:
+int_x_done:
 
 ; Transmit a temperature measurement. After that, we decrement
 ; the two-byte temperature period counter. When it reaches zero,
 ; we update the temperature measurement and reset the counter.
 
-int_xmit_temp:
+int_temp:
 ld A,(temp_xpd)
 add A,0
-jp z,int_xmit_temp_done
+jp z,int_temp_done
 ld A,(temp_idx)
 add A,0
 dec A
 ld (temp_idx),A
-jp nz,int_xmit_temp_done
+jp nz,int_temp_done
 ld A,(temp_xpd)
 ld (temp_idx),A
 ld A,(temp_xch)
@@ -866,30 +873,41 @@ ld (temp_mtl),A
 ld A,(temp_mth)
 sbc A,0
 ld (temp_mth),A
-jp p,int_xmit_temp_done
+jp p,int_temp_done
 ld A,(temp_mpd)
 ld (temp_mth),A
 ld A,0
 ld (temp_mtl),A
 call tmp_single
-int_xmit_temp_done:
+int_temp_done:
 
 ; Transmit an accelerometer measurement. The byte ordering
-; on the accelerometer is little-endian.
+; on the accelerometer is little-endian. We will transmit
+; x, y, and z coordinates depending upon whether or not
+; these three are enabled by their channel numbers.
 
-int_xmit_acc:
+int_acc:
+
 ld A,(acc_xpd)
 add A,0
-jp z,int_xmit_acc_done
+jp z,int_acc_done
+
 ld A,(acc_idx)
 dec A
 ld (acc_idx),A
-jp nz,int_xmit_acc_done
+jp nz,int_acc_done
+
 ld A,(acc_xpd)
 ld (acc_idx),A
+
 ld A,bma_addr
 push A
 pop H
+
+ld A,(acc_xch)
+add A,0
+jp z,int_acc_y
+
 ld A,bma_x
 push A
 pop L
@@ -909,7 +927,60 @@ ld A,(acc_xch)
 ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
-int_xmit_acc_done:
+
+int_acc_y:
+
+ld A,(acc_ych)
+add A,0
+jp z,int_acc_z
+
+ld A,bma_y
+push A
+pop L
+ld IX,scr_bot
+ld A,2
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
+add A,off_16bs   
+ld (mmu_xhb),A
+dec IX
+ld A,(IX)
+ld (mmu_xlb),A
+ld A,(acc_ych)
+ld (mmu_xch),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+
+int_acc_z:
+
+ld A,(acc_zch)
+add A,0
+jp z,int_acc_done
+
+ld A,bma_z
+push A
+pop L
+ld IX,scr_bot
+ld A,2
+push A
+pop C
+call i2c_rd
+dec IX
+ld A,(IX)
+add A,off_16bs   
+ld (mmu_xhb),A
+dec IX
+ld A,(IX)
+ld (mmu_xlb),A
+ld A,(acc_zch)
+ld (mmu_xch),A
+ld A,tx_txi 
+ld (mmu_xcr),A
+
+int_acc_done:
 
 ; Transmit a byte from the non-volatile memory (NVM). We 
 ; transmit the byte as the top byte in our two-byte
@@ -918,14 +989,14 @@ int_xmit_acc_done:
 ; time we transmit a byte, we increment an address counter
 ; so that we read all the bytes in turn.
 
-int_xmit_nvm:
+int_nvm:
 ld A,(nvm_xpd)
 add A,0
-jp z,int_xmit_nvm_done
+jp z,int_nvm_done
 ld A,(nvm_idx)
 dec A
 ld (nvm_idx),A
-jp nz,int_xmit_nvm_done
+jp nz,int_nvm_done
 ld A,(nvm_xpd)
 ld (nvm_idx),A
 ld A,(nvm_xal)
@@ -955,21 +1026,18 @@ ld A,(nvm_xch)
 ld (mmu_xch),A
 ld A,tx_txi 
 ld (mmu_xcr),A
-int_xmit_nvm_done:
+int_nvm_done:
 
 ; Done with transmit interrupt. Make sure we are not transmitting before
 ; we leave.
 
-int_xmit_done_txw:
+int_done_txw:
 ld A,(mmu_sr)
 and A,sr_txa
-jp nz,int_xmit_done_txw
-
-int_xmit_done:
+jp nz,int_done_txw
 
 ; Restore registers.
 
-int_done:
 pop IY
 pop IX
 pop L
