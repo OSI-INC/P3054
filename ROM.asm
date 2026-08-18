@@ -93,7 +93,7 @@ const calib_rf   0x0205 ; Radio Frequency Low Calibration
 ; bottom 128 bytes of the 256-byte program variable space.
 ; A configuration read begins by reading the first sixteen
 ; bytes from NVM. The first two must match the configuration
-; key or else the configuration variables will over-written
+; key or else the configuration variables will be over-written
 ; by default values.
 
 const conf_len      128 ; Number of bytes to read
@@ -211,8 +211,7 @@ const nvm_idx    0x0332 ; Index
 const nvm_xah    0x0333 ; Transmit Address, HI
 const nvm_xal    0x0334 ; Transmit Address, LO
 
-; Variables: These are used by the program during 
-; operation, not just during initialization.
+; Variables: For use after initialization.
 
 const sack_key   0x0380 ; Acknowledgement key
 const ccmdb      0x0381 ; Copy of Command Byte
@@ -1761,9 +1760,9 @@ pop A
 sub A,B
 jp nz,main_boost
 
-; If the calibration key was correct, copy the contents
+; If the calibration key is correct, copy the contents
 ; of our NVM calibration into registers. We begin by
-; reading the radio frequency calibration an writing to
+; reading the radio frequency calibration and writing to
 ; its control register.
 
 ld A,(calib_rf) 
@@ -2016,7 +2015,7 @@ main_nocmd:
 jp main_loop
 
 ; ------------------------------------------------------------
-; Include files. These must follow the main and interrupt jumps.
+; Include files. 
 
 include "../../OSR8/Mult_8.asm"
 include "../../OSR8/Sub_8N.asm"
